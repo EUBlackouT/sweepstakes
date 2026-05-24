@@ -39,7 +39,6 @@ interface AppState {
   matches: Match[];
   locked: boolean;
   drawCompletedAt: string | null;
-  selectedParticipantId: string | null;
 }
 
 interface SyncState {
@@ -66,6 +65,7 @@ interface AppStateRow {
 }
 
 const STORAGE_KEY = 'world-cup-sweepstake-v2';
+const SELECTED_PROFILE_KEY = 'sweepstake-selected-profile';
 const ADMIN_PIN = 'Ohbrother15';
 const ADMIN_SESSION_KEY = 'sweepstake-admin-unlocked';
 const WORLD_CUP_LEAGUE_ID = '4429';
@@ -203,6 +203,7 @@ let syncState: SyncState = {
 };
 let adminUnlocked = sessionStorage.getItem(ADMIN_SESSION_KEY) === '1';
 let joinDraft = { name: '', discordHandle: '' };
+let selectedParticipantId = localStorage.getItem(SELECTED_PROFILE_KEY);
 const supabase = getSupabaseClient();
 let cloudSyncError: string | null = null;
 let cloudSyncStatus: 'disabled' | 'syncing' | 'online' = supabase ? 'syncing' : 'disabled';
@@ -237,7 +238,6 @@ function loadState(): AppState {
       matches: [],
       locked: false,
       drawCompletedAt: null,
-      selectedParticipantId: null,
     };
   }
 
@@ -248,7 +248,6 @@ function loadState(): AppState {
       matches: parsed.matches ?? [],
       locked: Boolean(parsed.locked),
       drawCompletedAt: parsed.drawCompletedAt ?? null,
-      selectedParticipantId: parsed.selectedParticipantId ?? null,
     };
   } catch {
     return {
@@ -256,7 +255,6 @@ function loadState(): AppState {
       matches: [],
       locked: false,
       drawCompletedAt: null,
-      selectedParticipantId: null,
     };
   }
 }
@@ -404,7 +402,6 @@ function sanitizeAppState(raw: AppState): AppState {
     })),
     locked: Boolean(raw?.locked),
     drawCompletedAt: raw?.drawCompletedAt ?? null,
-    selectedParticipantId: raw?.selectedParticipantId ?? null,
   };
 }
 
@@ -430,8 +427,12 @@ function render(): void {
   const leaderboard = buildLeaderboard();
   const viewerTimeZone = getViewerTimezone();
   const hasDrawResults = state.locked && state.participants.some((p) => Boolean(p.teams));
+  if (selectedParticipantId && !state.participants.some((p) => p.id === selectedParticipantId)) {
+    selectedParticipantId = null;
+    localStorage.removeItem(SELECTED_PROFILE_KEY);
+  }
   const selectedParticipant =
-    state.participants.find((p) => p.id === state.selectedParticipantId) ?? null;
+    state.participants.find((p) => p.id === selectedParticipantId) ?? null;
   const personalMatches = selectedParticipant?.teams
     ? getPersonalMatchesFromMatches(state.matches, selectedParticipant.teams)
     : [];
@@ -706,7 +707,7 @@ function render(): void {
               ${state.participants
                 .map(
                   (p) =>
-                    `<option value="${p.id}" ${p.id === state.selectedParticipantId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`,
+                    `<option value="${p.id}" ${p.id === selectedParticipantId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`,
                 )
                 .join('')}
             </select>
@@ -794,8 +795,13 @@ function render(): void {
     .querySelector<HTMLSelectElement>('#participant-picker')
     ?.addEventListener('change', (event) => {
       const select = event.currentTarget as HTMLSelectElement;
-      state.selectedParticipantId = select.value || null;
-      saveAndRender();
+      selectedParticipantId = select.value || null;
+      if (selectedParticipantId) {
+        localStorage.setItem(SELECTED_PROFILE_KEY, selectedParticipantId);
+      } else {
+        localStorage.removeItem(SELECTED_PROFILE_KEY);
+      }
+      render();
     });
   const nameInput = document.querySelector<HTMLInputElement>('input[name="name"]');
   const discordInput = document.querySelector<HTMLInputElement>('input[name="discordHandle"]');
@@ -852,8 +858,9 @@ function runDraw(): void {
   }
   state.locked = false;
   state.drawCompletedAt = null;
-  if (!state.selectedParticipantId && state.participants[0]) {
-    state.selectedParticipantId = state.participants[0].id;
+  if (!selectedParticipantId && state.participants[0]) {
+    selectedParticipantId = state.participants[0].id;
+    localStorage.setItem(SELECTED_PROFILE_KEY, selectedParticipantId);
   }
   saveAndRender();
 }
@@ -882,8 +889,9 @@ function lockFinalDraw(): void {
   }
   state.locked = true;
   state.drawCompletedAt = new Date().toISOString();
-  if (!state.selectedParticipantId && state.participants[0]) {
-    state.selectedParticipantId = state.participants[0].id;
+  if (!selectedParticipantId && state.participants[0]) {
+    selectedParticipantId = state.participants[0].id;
+    localStorage.setItem(SELECTED_PROFILE_KEY, selectedParticipantId);
   }
   saveAndRender();
 }
@@ -1019,8 +1027,9 @@ function resetAll(): void {
     matches: [],
     locked: false,
     drawCompletedAt: null,
-    selectedParticipantId: null,
   };
+  selectedParticipantId = null;
+  localStorage.removeItem(SELECTED_PROFILE_KEY);
   saveAndRender();
   void syncApiMatches(true);
 }
@@ -1033,8 +1042,9 @@ function removePlayer(id: string): void {
     return;
   }
   state.participants = state.participants.filter((p) => p.id !== id);
-  if (state.selectedParticipantId === id) {
-    state.selectedParticipantId = null;
+  if (selectedParticipantId === id) {
+    selectedParticipantId = null;
+    localStorage.removeItem(SELECTED_PROFILE_KEY);
   }
   saveAndRender();
 }
