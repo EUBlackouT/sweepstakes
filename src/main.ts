@@ -847,9 +847,7 @@ function runDraw(): void {
   if (state.participants.length < 1) {
     return;
   }
-  if (!performConstrainedDraw()) {
-    return;
-  }
+  applyRandomDraw();
   state.locked = false;
   state.drawCompletedAt = null;
   if (!state.selectedParticipantId && state.participants[0]) {
@@ -865,7 +863,18 @@ function lockFinalDraw(): void {
   if (state.participants.length < 1) {
     return;
   }
-  if (!state.participants.some((p) => Boolean(p.teams)) && !performConstrainedDraw()) {
+  const groupMap = buildGroupMapFromMatches(state.matches);
+  const missingGroupTeams = allTeams.filter((team) => !groupMap.has(normalizeTeamName(team)));
+  if (missingGroupTeams.length > 0) {
+    window.alert(
+      'Cannot lock final draw yet: group mapping data is incomplete. Refresh live data and try again.',
+    );
+    return;
+  }
+
+  const existingDraw = state.participants.every((p) => Boolean(p.teams));
+  const existingDrawIsSafe = existingDraw && isCurrentDrawGroupSafe(groupMap);
+  if (!existingDrawIsSafe && !performConstrainedDraw()) {
     return;
   }
   state.locked = true;
@@ -878,14 +887,6 @@ function lockFinalDraw(): void {
 
 function performConstrainedDraw(): boolean {
   const groupMap = buildGroupMapFromMatches(state.matches);
-  const missingGroupTeams = allTeams.filter((team) => !groupMap.has(normalizeTeamName(team)));
-  if (missingGroupTeams.length > 0) {
-    window.alert(
-      'Group-safe draw data is not fully available yet. Please refresh live data and try again.',
-    );
-    return false;
-  }
-
   const draw = generateConstrainedDraw(state.participants.length, groupMap);
   if (!draw) {
     window.alert(
@@ -899,6 +900,35 @@ function performConstrainedDraw(): boolean {
     teams: draw[index],
   }));
   return true;
+}
+
+function applyRandomDraw(): void {
+  const seed1Shuffled = shuffle([...seeds.seed1]);
+  const seed2Shuffled = shuffle([...seeds.seed2]);
+  const seed3Shuffled = shuffle([...seeds.seed3]);
+  state.participants = state.participants.map((participant, index) => ({
+    ...participant,
+    teams: {
+      seed1: seed1Shuffled[index],
+      seed2: seed2Shuffled[index],
+      seed3: seed3Shuffled[index],
+    },
+  }));
+}
+
+function isCurrentDrawGroupSafe(groupMap: Map<string, string>): boolean {
+  return state.participants.every((participant) => {
+    if (!participant.teams) {
+      return false;
+    }
+    const g1 = groupMap.get(normalizeTeamName(participant.teams.seed1));
+    const g2 = groupMap.get(normalizeTeamName(participant.teams.seed2));
+    const g3 = groupMap.get(normalizeTeamName(participant.teams.seed3));
+    if (!g1 || !g2 || !g3) {
+      return false;
+    }
+    return g1 !== g2 && g1 !== g3 && g2 !== g3;
+  });
 }
 
 function generateConstrainedDraw(
