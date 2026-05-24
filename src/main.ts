@@ -325,7 +325,7 @@ async function pullCloudState(initial = false): Promise<void> {
     cloudSyncError = null;
   } catch (error) {
     cloudSyncStatus = 'disabled';
-    cloudSyncError = error instanceof Error ? error.message : 'Cloud sync failed';
+    cloudSyncError = formatCloudError(error);
     render();
   }
 }
@@ -355,7 +355,7 @@ async function pushCloudState(isBootstrap = false): Promise<void> {
     }
   } catch (error) {
     cloudSyncStatus = 'disabled';
-    cloudSyncError = error instanceof Error ? error.message : 'Could not save to cloud';
+    cloudSyncError = formatCloudError(error);
     render();
   }
 }
@@ -405,6 +405,24 @@ function sanitizeAppState(raw: AppState): AppState {
     drawCompletedAt: raw?.drawCompletedAt ?? null,
     selectedParticipantId: raw?.selectedParticipantId ?? null,
   };
+}
+
+function formatCloudError(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const code = 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
+    const message =
+      'message' in error ? String((error as { message?: unknown }).message ?? '') : '';
+    if (code === '42P01') {
+      return 'Supabase table missing: run supabase/schema.sql';
+    }
+    if (code === '42501') {
+      return 'Supabase permissions denied: check RLS policies';
+    }
+    if (message) {
+      return message;
+    }
+  }
+  return 'Cloud sync failed';
 }
 
 function render(): void {
@@ -1045,18 +1063,27 @@ async function fetchWorldCupMatches(): Promise<Match[]> {
 }
 
 async function fetchJsonWithFallback<T>(url: string): Promise<T> {
-  const directResponse = await fetch(url);
-  if (directResponse.ok) {
-    return (await directResponse.json()) as T;
+  try {
+    const directResponse = await fetch(url);
+    if (directResponse.ok) {
+      return (await directResponse.json()) as T;
+    }
+    // Direct response exists but failed (common when provider rate-limits).
+    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+    const proxyResponse = await fetch(proxyUrl);
+    if (!proxyResponse.ok) {
+      throw new Error(`Live feed unavailable (${directResponse.status}/${proxyResponse.status})`);
+    }
+    return (await proxyResponse.json()) as T;
+  } catch {
+    // Direct fetch can throw in browsers on CORS/network errors.
+    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+    const proxyResponse = await fetch(proxyUrl);
+    if (!proxyResponse.ok) {
+      throw new Error(`Live feed unavailable (network/${proxyResponse.status})`);
+    }
+    return (await proxyResponse.json()) as T;
   }
-
-  // Fallback proxy avoids transient provider-side browser/CORS/rate-limit blocks.
-  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-  const proxyResponse = await fetch(proxyUrl);
-  if (!proxyResponse.ok) {
-    throw new Error(`Live feed unavailable (${directResponse.status}/${proxyResponse.status})`);
-  }
-  return (await proxyResponse.json()) as T;
 }
 
 function mergeApiMatches(existing: Match[], incomingApiMatches: Match[]): Match[] {
