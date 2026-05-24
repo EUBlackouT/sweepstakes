@@ -202,6 +202,7 @@ let syncState: SyncState = {
   lastSyncedAt: null,
 };
 let adminUnlocked = sessionStorage.getItem(ADMIN_SESSION_KEY) === '1';
+let joinDraft = { name: '', discordHandle: '' };
 const supabase = getSupabaseClient();
 let cloudSyncError: string | null = null;
 let cloudSyncStatus: 'disabled' | 'syncing' | 'online' = supabase ? 'syncing' : 'disabled';
@@ -426,8 +427,6 @@ function formatCloudError(error: unknown): string {
 }
 
 function render(): void {
-  const maxPlayers = seeds.seed1.length;
-  const isFull = state.participants.length >= maxPlayers;
   const leaderboard = buildLeaderboard();
   const viewerTimeZone = getViewerTimezone();
   const hasDrawResults = state.locked && state.participants.some((p) => Boolean(p.teams));
@@ -474,19 +473,19 @@ function render(): void {
               <section class="card full setup-panel">
                 <div class="card-head">
                   <h2>Setup Sweepstake</h2>
-                  <span class="badge ${state.locked ? 'bad' : 'good'}">${state.locked ? 'Entries Closed' : `${state.participants.length}/${maxPlayers} players`}</span>
+                  <span class="badge ${state.locked ? 'bad' : 'good'}">${state.locked ? 'Entries Closed' : `${state.participants.length} players`}</span>
                 </div>
                 <div class="actions">
                   <form id="join-form" class="stack inline-form">
-                    <input name="name" required maxlength="28" placeholder="Name" ${state.locked || isFull ? 'disabled' : ''} />
-                    <input name="discordHandle" required maxlength="40" placeholder="Discord handle" ${state.locked || isFull ? 'disabled' : ''} />
-                    <button type="submit" ${state.locked || isFull ? 'disabled' : ''}>Join Contest</button>
+                    <input name="name" required maxlength="28" placeholder="Name" value="${escapeHtml(joinDraft.name)}" ${state.locked ? 'disabled' : ''} />
+                    <input name="discordHandle" required maxlength="40" placeholder="Discord handle" value="${escapeHtml(joinDraft.discordHandle)}" ${state.locked ? 'disabled' : ''} />
+                    <button type="submit" ${state.locked ? 'disabled' : ''}>Join Contest</button>
                   </form>
                   ${
                     adminUnlocked
                       ? `
-                        <button id="run-draw" ${state.participants.length < 1 ? 'disabled' : ''}>Lock & Randomly Assign</button>
-                        <button id="unlock-draw" class="ghost" ${!state.locked ? 'disabled' : ''}>Reopen Entries</button>
+                        <button id="run-draw" ${state.participants.length < 1 ? 'disabled' : ''}>Roll Teams (RNG)</button>
+                        <button id="lock-draw" class="ghost" ${state.participants.length < 1 ? 'disabled' : ''}>Lock Final Draw</button>
                         <button id="reset-all" class="danger">Reset</button>
                       `
                       : '<span class="hint">Admin draw buttons are hidden until PIN unlock.</span>'
@@ -774,7 +773,7 @@ function render(): void {
   document.querySelector<HTMLButtonElement>('#admin-lock')?.addEventListener('click', lockAdminControls);
   document.querySelector<HTMLFormElement>('#join-form')?.addEventListener('submit', onJoinSubmit);
   document.querySelector<HTMLButtonElement>('#run-draw')?.addEventListener('click', runDraw);
-  document.querySelector<HTMLButtonElement>('#unlock-draw')?.addEventListener('click', reopenEntries);
+  document.querySelector<HTMLButtonElement>('#lock-draw')?.addEventListener('click', lockFinalDraw);
   document.querySelector<HTMLButtonElement>('#clear-draw')?.addEventListener('click', clearDrawOnly);
   document.querySelector<HTMLButtonElement>('#reset-all')?.addEventListener('click', resetAll);
   document.querySelector<HTMLButtonElement>('#refresh-api')?.addEventListener('click', () => {
@@ -798,12 +797,20 @@ function render(): void {
       state.selectedParticipantId = select.value || null;
       saveAndRender();
     });
+  const nameInput = document.querySelector<HTMLInputElement>('input[name="name"]');
+  const discordInput = document.querySelector<HTMLInputElement>('input[name="discordHandle"]');
+  nameInput?.addEventListener('input', () => {
+    joinDraft.name = nameInput.value;
+  });
+  discordInput?.addEventListener('input', () => {
+    joinDraft.discordHandle = discordInput.value;
+  });
 
 }
 
 function onJoinSubmit(event: SubmitEvent): void {
   event.preventDefault();
-  if (state.locked || state.participants.length >= seeds.seed1.length) {
+  if (state.locked) {
     return;
   }
   const form = event.currentTarget as HTMLFormElement;
@@ -828,24 +835,55 @@ function onJoinSubmit(event: SubmitEvent): void {
     discordHandle,
     joinedAt: new Date().toISOString(),
   });
+  joinDraft = { name: '', discordHandle: '' };
   form.reset();
   saveAndRender();
 }
 
 function runDraw(): void {
-  if (!requireAdminAccess('run the draw')) {
+  if (!requireAdminAccess('roll teams')) {
     return;
   }
   if (state.participants.length < 1) {
     return;
   }
+  if (!performConstrainedDraw()) {
+    return;
+  }
+  state.locked = false;
+  state.drawCompletedAt = null;
+  if (!state.selectedParticipantId && state.participants[0]) {
+    state.selectedParticipantId = state.participants[0].id;
+  }
+  saveAndRender();
+}
+
+function lockFinalDraw(): void {
+  if (!requireAdminAccess('lock final draw')) {
+    return;
+  }
+  if (state.participants.length < 1) {
+    return;
+  }
+  if (!state.participants.some((p) => Boolean(p.teams)) && !performConstrainedDraw()) {
+    return;
+  }
+  state.locked = true;
+  state.drawCompletedAt = new Date().toISOString();
+  if (!state.selectedParticipantId && state.participants[0]) {
+    state.selectedParticipantId = state.participants[0].id;
+  }
+  saveAndRender();
+}
+
+function performConstrainedDraw(): boolean {
   const groupMap = buildGroupMapFromMatches(state.matches);
   const missingGroupTeams = allTeams.filter((team) => !groupMap.has(normalizeTeamName(team)));
   if (missingGroupTeams.length > 0) {
     window.alert(
       'Group-safe draw data is not fully available yet. Please refresh live data and try again.',
     );
-    return;
+    return false;
   }
 
   const draw = generateConstrainedDraw(state.participants.length, groupMap);
@@ -853,20 +891,14 @@ function runDraw(): void {
     window.alert(
       'Could not produce a valid group-safe draw in this pass. Please click draw again.',
     );
-    return;
+    return false;
   }
 
   state.participants = state.participants.map((participant, index) => ({
     ...participant,
     teams: draw[index],
   }));
-
-  state.locked = true;
-  state.drawCompletedAt = new Date().toISOString();
-  if (!state.selectedParticipantId && state.participants[0]) {
-    state.selectedParticipantId = state.participants[0].id;
-  }
-  saveAndRender();
+  return true;
 }
 
 function generateConstrainedDraw(
@@ -922,14 +954,6 @@ function generateConstrainedDraw(
   }
 
   return solve(0, seed2Pool, seed3Pool) ? result : null;
-}
-
-function reopenEntries(): void {
-  if (!requireAdminAccess('reopen entries')) {
-    return;
-  }
-  state.locked = false;
-  saveAndRender();
 }
 
 function clearDrawOnly(): void {
