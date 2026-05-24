@@ -1066,23 +1066,34 @@ async function fetchJsonWithFallback<T>(url: string): Promise<T> {
   try {
     const directResponse = await fetch(url);
     if (directResponse.ok) {
-      return (await directResponse.json()) as T;
+      try {
+        return await parseResponseJson<T>(directResponse);
+      } catch {
+        // Continue to proxy fallback when body is non-JSON despite 200.
+      }
     }
-    // Direct response exists but failed (common when provider rate-limits).
-    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-    const proxyResponse = await fetch(proxyUrl);
-    if (!proxyResponse.ok) {
-      throw new Error(`Live feed unavailable (${directResponse.status}/${proxyResponse.status})`);
-    }
-    return (await proxyResponse.json()) as T;
   } catch {
-    // Direct fetch can throw in browsers on CORS/network errors.
-    const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-    const proxyResponse = await fetch(proxyUrl);
-    if (!proxyResponse.ok) {
-      throw new Error(`Live feed unavailable (network/${proxyResponse.status})`);
-    }
-    return (await proxyResponse.json()) as T;
+    // Ignore direct fetch failures and try proxy fallback.
+  }
+
+  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+  const proxyResponse = await fetch(proxyUrl);
+  if (!proxyResponse.ok) {
+    throw new Error(`Live feed unavailable (${proxyResponse.status})`);
+  }
+  try {
+    return await parseResponseJson<T>(proxyResponse);
+  } catch {
+    throw new Error('Live feed temporarily unavailable');
+  }
+}
+
+async function parseResponseJson<T>(response: Response): Promise<T> {
+  const raw = await response.text();
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error('Non-JSON response');
   }
 }
 
