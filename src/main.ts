@@ -592,7 +592,7 @@ function render(): void {
 
         <section class="card full vs-board">
           <div class="card-head">
-            <h2>Sweepstake VS Board</h2>
+            <h2>Upcoming Matches</h2>
             <span class="badge">${liveFaceOffs.length} live clashes</span>
           </div>
           ${
@@ -847,7 +847,9 @@ function runDraw(): void {
   if (state.participants.length < 1) {
     return;
   }
-  applyRandomDraw();
+  if (!performConstrainedDraw()) {
+    return;
+  }
   state.locked = false;
   state.drawCompletedAt = null;
   if (!state.selectedParticipantId && state.participants[0]) {
@@ -864,6 +866,7 @@ function lockFinalDraw(): void {
     return;
   }
   const groupMap = buildGroupMapFromMatches(state.matches);
+  const conflictMap = buildTeamConflictMap(state.matches);
   const missingGroupTeams = allTeams.filter((team) => !groupMap.has(normalizeTeamName(team)));
   if (missingGroupTeams.length > 0) {
     window.alert(
@@ -873,7 +876,7 @@ function lockFinalDraw(): void {
   }
 
   const existingDraw = state.participants.every((p) => Boolean(p.teams));
-  const existingDrawIsSafe = existingDraw && isCurrentDrawGroupSafe(groupMap);
+  const existingDrawIsSafe = existingDraw && isCurrentDrawValid(groupMap, conflictMap);
   if (!existingDrawIsSafe && !performConstrainedDraw()) {
     return;
   }
@@ -887,10 +890,11 @@ function lockFinalDraw(): void {
 
 function performConstrainedDraw(): boolean {
   const groupMap = buildGroupMapFromMatches(state.matches);
-  const draw = generateConstrainedDraw(state.participants.length, groupMap);
+  const conflictMap = buildTeamConflictMap(state.matches);
+  const draw = generateConstrainedDraw(state.participants.length, groupMap, conflictMap);
   if (!draw) {
     window.alert(
-      'Could not produce a valid group-safe draw in this pass. Please click draw again.',
+      'Could not produce a valid draw without same-group or self-vs-self conflicts. Please click draw again.',
     );
     return false;
   }
@@ -901,22 +905,10 @@ function performConstrainedDraw(): boolean {
   }));
   return true;
 }
-
-function applyRandomDraw(): void {
-  const seed1Shuffled = shuffle([...seeds.seed1]);
-  const seed2Shuffled = shuffle([...seeds.seed2]);
-  const seed3Shuffled = shuffle([...seeds.seed3]);
-  state.participants = state.participants.map((participant, index) => ({
-    ...participant,
-    teams: {
-      seed1: seed1Shuffled[index],
-      seed2: seed2Shuffled[index],
-      seed3: seed3Shuffled[index],
-    },
-  }));
-}
-
-function isCurrentDrawGroupSafe(groupMap: Map<string, string>): boolean {
+function isCurrentDrawValid(
+  groupMap: Map<string, string>,
+  conflictMap: Map<string, Set<string>>,
+): boolean {
   return state.participants.every((participant) => {
     if (!participant.teams) {
       return false;
@@ -927,13 +919,24 @@ function isCurrentDrawGroupSafe(groupMap: Map<string, string>): boolean {
     if (!g1 || !g2 || !g3) {
       return false;
     }
-    return g1 !== g2 && g1 !== g3 && g2 !== g3;
+    const t1 = normalizeTeamName(participant.teams.seed1);
+    const t2 = normalizeTeamName(participant.teams.seed2);
+    const t3 = normalizeTeamName(participant.teams.seed3);
+    return (
+      g1 !== g2 &&
+      g1 !== g3 &&
+      g2 !== g3 &&
+      areTeamsNonConflicting(t1, t2, conflictMap) &&
+      areTeamsNonConflicting(t1, t3, conflictMap) &&
+      areTeamsNonConflicting(t2, t3, conflictMap)
+    );
   });
 }
 
 function generateConstrainedDraw(
   participantCount: number,
   groupMap: Map<string, string>,
+  conflictMap: Map<string, Set<string>>,
 ): DrawnTeams[] | null {
   const seed1Assigned = shuffle([...seeds.seed1]).slice(0, participantCount);
   const seed2Pool = shuffle([...seeds.seed2]);
@@ -949,6 +952,10 @@ function generateConstrainedDraw(
     return groupA !== groupB;
   }
 
+  function canPair(teamA: string, teamB: string): boolean {
+    return areDifferentGroups(teamA, teamB) && areTeamsNonConflicting(teamA, teamB, conflictMap);
+  }
+
   function solve(index: number, remainingSeed2: string[], remainingSeed3: string[]): boolean {
     if (index >= participantCount) {
       return true;
@@ -956,14 +963,14 @@ function generateConstrainedDraw(
 
     const seed1Team = seed1Assigned[index];
     const candidateSeed2 = shuffle(
-      remainingSeed2.filter((team2) => areDifferentGroups(seed1Team, team2)),
+      remainingSeed2.filter((team2) => canPair(seed1Team, team2)),
     );
 
     for (const team2 of candidateSeed2) {
       const nextSeed2 = remainingSeed2.filter((team) => team !== team2);
       const candidateSeed3 = shuffle(
         remainingSeed3.filter(
-          (team3) => areDifferentGroups(seed1Team, team3) && areDifferentGroups(team2, team3),
+          (team3) => canPair(seed1Team, team3) && canPair(team2, team3),
         ),
       );
 
@@ -1223,6 +1230,39 @@ function buildGroupMapFromMatches(matches: Match[]): Map<string, string> {
   }
 
   return groupMap;
+}
+
+function buildTeamConflictMap(matches: Match[]): Map<string, Set<string>> {
+  const conflictMap = new Map<string, Set<string>>();
+  const relevant = matches.filter(
+    (match) =>
+      match.source === 'api' &&
+      normalizedTeamSet.has(normalizeTeamName(match.homeTeam)) &&
+      normalizedTeamSet.has(normalizeTeamName(match.awayTeam)),
+  );
+
+  for (const match of relevant) {
+    const home = normalizeTeamName(match.homeTeam);
+    const away = normalizeTeamName(match.awayTeam);
+    const homeSet = conflictMap.get(home) ?? new Set<string>();
+    homeSet.add(away);
+    conflictMap.set(home, homeSet);
+    const awaySet = conflictMap.get(away) ?? new Set<string>();
+    awaySet.add(home);
+    conflictMap.set(away, awaySet);
+  }
+
+  return conflictMap;
+}
+
+function areTeamsNonConflicting(
+  teamA: string,
+  teamB: string,
+  conflictMap: Map<string, Set<string>>,
+): boolean {
+  const a = normalizeTeamName(teamA);
+  const b = normalizeTeamName(teamB);
+  return !(conflictMap.get(a)?.has(b) ?? false);
 }
 
 interface ApiEvent {
