@@ -14,7 +14,6 @@ interface DrawnTeams {
 interface Participant {
   id: string;
   name: string;
-  discordHandle: string;
   joinedAt: string;
   teams?: DrawnTeams;
 }
@@ -202,7 +201,7 @@ let syncState: SyncState = {
   lastSyncedAt: null,
 };
 let adminUnlocked = sessionStorage.getItem(ADMIN_SESSION_KEY) === '1';
-let joinDraft = { name: '', discordHandle: '' };
+let joinDraft = { name: '' };
 let selectedParticipantId = localStorage.getItem(SELECTED_PROFILE_KEY);
 const supabase = getSupabaseClient();
 let cloudSyncError: string | null = null;
@@ -479,7 +478,6 @@ function render(): void {
                 <div class="actions">
                   <form id="join-form" class="stack inline-form">
                     <input name="name" required maxlength="28" placeholder="Name" value="${escapeHtml(joinDraft.name)}" ${state.locked ? 'disabled' : ''} />
-                    <input name="discordHandle" required maxlength="40" placeholder="Discord handle" value="${escapeHtml(joinDraft.discordHandle)}" ${state.locked ? 'disabled' : ''} />
                     <button type="submit" ${state.locked ? 'disabled' : ''}>Join Contest</button>
                   </form>
                   ${
@@ -511,7 +509,6 @@ function render(): void {
               <thead>
                 <tr>
                   <th>Player</th>
-                  <th>Discord</th>
                   <th>Seed 1</th>
                   <th>Seed 2</th>
                   <th>Seed 3</th>
@@ -521,13 +518,12 @@ function render(): void {
               <tbody>
                 ${
                   state.participants.length === 0
-                    ? '<tr><td colspan="6" class="empty">No players joined yet.</td></tr>'
+                    ? '<tr><td colspan="5" class="empty">No players joined yet.</td></tr>'
                     : state.participants
                         .map(
                           (p) => `
                             <tr>
                               <td>${escapeHtml(p.name)}</td>
-                              <td>${escapeHtml(p.discordHandle)}</td>
                               <td>${escapeHtml(p.teams?.seed1 ?? '-')}</td>
                               <td>${escapeHtml(p.teams?.seed2 ?? '-')}</td>
                               <td>${escapeHtml(p.teams?.seed3 ?? '-')}</td>
@@ -804,12 +800,8 @@ function render(): void {
       render();
     });
   const nameInput = document.querySelector<HTMLInputElement>('input[name="name"]');
-  const discordInput = document.querySelector<HTMLInputElement>('input[name="discordHandle"]');
   nameInput?.addEventListener('input', () => {
     joinDraft.name = nameInput.value;
-  });
-  discordInput?.addEventListener('input', () => {
-    joinDraft.discordHandle = discordInput.value;
   });
 
 }
@@ -822,26 +814,22 @@ function onJoinSubmit(event: SubmitEvent): void {
   const form = event.currentTarget as HTMLFormElement;
   const data = new FormData(form);
   const name = String(data.get('name') ?? '').trim();
-  const discordHandle = String(data.get('discordHandle') ?? '').trim();
-  if (!name || !discordHandle) {
+  if (!name) {
     return;
   }
   const duplicate = state.participants.some(
-    (p) =>
-      p.name.toLowerCase() === name.toLowerCase() ||
-      p.discordHandle.toLowerCase() === discordHandle.toLowerCase(),
+    (p) => p.name.toLowerCase() === name.toLowerCase(),
   );
   if (duplicate) {
-    window.alert('This name or Discord handle is already registered.');
+    window.alert('This name is already registered.');
     return;
   }
   state.participants.push({
     id: crypto.randomUUID(),
     name,
-    discordHandle,
     joinedAt: new Date().toISOString(),
   });
-  joinDraft = { name: '', discordHandle: '' };
+  joinDraft = { name: '' };
   form.reset();
   saveAndRender();
 }
