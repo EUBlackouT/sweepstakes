@@ -1088,7 +1088,10 @@ async function syncApiMatches(forceRender = false): Promise<void> {
     const apiMatches = await fetchWorldCupMatches();
     state.matches = mergeApiMatches(state.matches, apiMatches);
     syncState.lastSyncedAt = new Date().toISOString();
-    saveAndRender();
+    // Do not push cloud state on every API poll; that can overwrite
+    // participant/draw data from other active clients.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    render();
   } catch (error) {
     syncState.error = error instanceof Error ? error.message : 'Unknown sync error';
     render();
