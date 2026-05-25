@@ -53,14 +53,14 @@ body::after {
 
 body::before {
   left: 0;
-  background-image: linear-gradient(90deg, rgba(8, 21, 31, 0.15), rgba(8, 21, 31, 0.75)),
-    url('/sideline-left.svg');
+  background-image: linear-gradient(90deg, rgba(8, 21, 31, 0.22), rgba(8, 21, 31, 0.78)),
+    url('/side-left.jpg');
 }
 
 body::after {
   right: 0;
-  background-image: linear-gradient(270deg, rgba(8, 21, 31, 0.15), rgba(8, 21, 31, 0.75)),
-    url('/sideline-right.svg');
+  background-image: linear-gradient(270deg, rgba(8, 21, 31, 0.22), rgba(8, 21, 31, 0.78)),
+    url('/side-right.jpg');
 }
 
 #app {
