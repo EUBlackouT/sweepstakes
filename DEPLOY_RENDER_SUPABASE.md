@@ -7,6 +7,16 @@
 3. Copy:
    - Project URL
    - anon public API key
+4. Set admin PIN hash (replace values):
+
+```sql
+insert into public.admin_room_access (room_id, pin_hash)
+values (
+  'YOUR_VITE_SUPABASE_ROOM_ID',
+  extensions.crypt('YOUR_NEW_PIN', extensions.gen_salt('bf'))
+)
+on conflict (room_id) do update set pin_hash = excluded.pin_hash;
+```
 
 ## 2) Configure local env
 

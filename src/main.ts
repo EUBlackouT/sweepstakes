@@ -65,8 +65,7 @@ interface AppStateRow {
 
 const STORAGE_KEY = 'world-cup-sweepstake-v2';
 const SELECTED_PROFILE_KEY = 'sweepstake-selected-profile';
-const ADMIN_PIN = 'Ohbrother15';
-const ADMIN_SESSION_KEY = 'sweepstake-admin-unlocked';
+const LEGACY_ADMIN_SESSION_KEY = 'sweepstake-admin-unlocked';
 const WORLD_CUP_LEAGUE_ID = '4429';
 const WORLD_CUP_TARGET_SEASON = '2026';
 const SYNC_INTERVAL_MS = 30_000;
@@ -205,7 +204,9 @@ let syncState: SyncState = {
   error: null,
   lastSyncedAt: null,
 };
-let adminUnlocked = sessionStorage.getItem(ADMIN_SESSION_KEY) === '1';
+// Never trust prior browser unlock state; require fresh server-side PIN verification.
+sessionStorage.removeItem(LEGACY_ADMIN_SESSION_KEY);
+let adminUnlocked = false;
 let joinDraft = { name: '' };
 let liveFailureCount = 0;
 let liveCooldownUntil = 0;
@@ -479,6 +480,7 @@ function render(): void {
                 : '<button id="admin-unlock" class="ghost small">Unlock with PIN</button>'
             }
           </div>
+          <p class="hint">Room: ${escapeHtml(SUPABASE_ROOM_ID)}. PIN is checked server-side in Supabase.</p>
         </section>
         ${
           hasDrawResults
@@ -1051,23 +1053,46 @@ function removePlayer(id: string): void {
   saveAndRender();
 }
 
-function unlockAdminControls(): void {
+async function unlockAdminControls(): Promise<void> {
+  if (!supabase) {
+    window.alert('Admin unlock requires Supabase to be configured.');
+    return;
+  }
   const entered = window.prompt('Enter admin PIN');
   if (entered === null) {
     return;
   }
-  if (entered !== ADMIN_PIN) {
+  const valid = await verifyAdminPin(entered);
+  if (!valid) {
     window.alert('Invalid PIN.');
     return;
   }
   adminUnlocked = true;
-  sessionStorage.setItem(ADMIN_SESSION_KEY, '1');
   render();
+}
+
+async function verifyAdminPin(pin: string): Promise<boolean> {
+  try {
+    if (!supabase) {
+      return false;
+    }
+    const { data, error } = await supabase.rpc('verify_admin_pin', {
+      room_input: SUPABASE_ROOM_ID,
+      pin_input: pin,
+    });
+    if (error) {
+      cloudSyncError = formatCloudError(error);
+      render();
+      return false;
+    }
+    return Boolean(data);
+  } catch {
+    return false;
+  }
 }
 
 function lockAdminControls(): void {
   adminUnlocked = false;
-  sessionStorage.removeItem(ADMIN_SESSION_KEY);
   render();
 }
 
