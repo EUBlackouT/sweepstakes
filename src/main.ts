@@ -480,7 +480,6 @@ function render(): void {
                 : '<button id="admin-unlock" class="ghost small">Unlock with PIN</button>'
             }
           </div>
-          <p class="hint">Room: ${escapeHtml(SUPABASE_ROOM_ID)}. PIN is checked server-side in Supabase.</p>
         </section>
         ${
           hasDrawResults
