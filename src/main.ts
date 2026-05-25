@@ -69,7 +69,7 @@ const ADMIN_PIN = 'Ohbrother15';
 const ADMIN_SESSION_KEY = 'sweepstake-admin-unlocked';
 const WORLD_CUP_LEAGUE_ID = '4429';
 const WORLD_CUP_TARGET_SEASON = '2026';
-const SYNC_INTERVAL_MS = 5_000;
+const SYNC_INTERVAL_MS = 30_000;
 const CLOUD_SYNC_INTERVAL_MS = 4_000;
 const SIDE_LEFT_IMAGE = (import.meta.env.VITE_SIDE_LEFT_IMAGE as string | undefined) ?? '/side-left.jpg';
 const SIDE_RIGHT_IMAGE =
@@ -207,6 +207,8 @@ let syncState: SyncState = {
 };
 let adminUnlocked = sessionStorage.getItem(ADMIN_SESSION_KEY) === '1';
 let joinDraft = { name: '' };
+let liveFailureCount = 0;
+let liveCooldownUntil = 0;
 let selectedParticipantId = localStorage.getItem(SELECTED_PROFILE_KEY);
 const supabase = getSupabaseClient();
 let cloudSyncError: string | null = null;
@@ -218,7 +220,9 @@ render();
 void syncApiMatches();
 void bootstrapCloudState();
 window.setInterval(() => {
-  void syncApiMatches();
+  if (!document.hidden) {
+    void syncApiMatches();
+  }
 }, SYNC_INTERVAL_MS);
 window.setInterval(() => {
   void pullCloudState();
@@ -555,7 +559,7 @@ function render(): void {
           </div>
           <p class="hint live-sync-note">
             <span class="heartbeat ${syncState.loading ? 'loading' : ''}" aria-hidden="true"></span>
-            Auto-updates every 5 seconds. Last sync: ${syncState.lastSyncedAt ? `${formatDateTime(syncState.lastSyncedAt)} (${formatSyncAge(syncState.lastSyncedAt)})` : 'not yet synced'} (${escapeHtml(viewerTimeZone)})
+            Auto-updates every 30 seconds. Last sync: ${syncState.lastSyncedAt ? `${formatDateTime(syncState.lastSyncedAt)} (${formatSyncAge(syncState.lastSyncedAt)})` : 'not yet synced'} (${escapeHtml(viewerTimeZone)})
             ${syncState.error ? ` | ${escapeHtml(syncState.error)}` : ''}
             | Shared sync: ${cloudSyncStatus === 'online' ? 'online' : cloudSyncStatus === 'syncing' ? 'syncing' : 'offline'}
             ${cloudSyncError ? ` (${escapeHtml(cloudSyncError)})` : ''}
@@ -1079,6 +1083,9 @@ async function syncApiMatches(forceRender = false): Promise<void> {
   if (syncState.loading) {
     return;
   }
+  if (!forceRender && Date.now() < liveCooldownUntil) {
+    return;
+  }
   syncState.loading = true;
   syncState.error = null;
   if (forceRender) {
@@ -1088,12 +1095,17 @@ async function syncApiMatches(forceRender = false): Promise<void> {
     const apiMatches = await fetchWorldCupMatches();
     state.matches = mergeApiMatches(state.matches, apiMatches);
     syncState.lastSyncedAt = new Date().toISOString();
+    liveFailureCount = 0;
+    liveCooldownUntil = 0;
     // Do not push cloud state on every API poll; that can overwrite
     // participant/draw data from other active clients.
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     render();
   } catch (error) {
     syncState.error = error instanceof Error ? error.message : 'Unknown sync error';
+    liveFailureCount += 1;
+    const backoffMs = Math.min(5 * 60 * 1000, 15_000 * 2 ** Math.min(liveFailureCount, 5));
+    liveCooldownUntil = Date.now() + backoffMs;
     render();
   } finally {
     syncState.loading = false;
