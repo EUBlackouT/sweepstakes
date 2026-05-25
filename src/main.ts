@@ -71,6 +71,9 @@ const WORLD_CUP_LEAGUE_ID = '4429';
 const WORLD_CUP_TARGET_SEASON = '2026';
 const SYNC_INTERVAL_MS = 5_000;
 const CLOUD_SYNC_INTERVAL_MS = 4_000;
+const SIDE_LEFT_IMAGE = (import.meta.env.VITE_SIDE_LEFT_IMAGE as string | undefined) ?? '/side-left.jpg';
+const SIDE_RIGHT_IMAGE =
+  (import.meta.env.VITE_SIDE_RIGHT_IMAGE as string | undefined) ?? '/side-right.jpg';
 const POINTS = {
   win: 3,
   draw: 1,
@@ -194,6 +197,8 @@ if (!appElMaybe) {
 }
 const appEl = appElMaybe;
 
+setSideBannerImages();
+
 let state = loadState();
 let syncState: SyncState = {
   loading: false,
@@ -256,6 +261,11 @@ function loadState(): AppState {
       drawCompletedAt: null,
     };
   }
+}
+
+function setSideBannerImages(): void {
+  document.documentElement.style.setProperty('--side-left-image', `url("${SIDE_LEFT_IMAGE}")`);
+  document.documentElement.style.setProperty('--side-right-image', `url("${SIDE_RIGHT_IMAGE}")`);
 }
 
 function saveAndRender(): void {

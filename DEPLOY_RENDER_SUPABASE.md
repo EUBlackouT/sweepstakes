@@ -21,6 +21,8 @@ Set:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_SUPABASE_ROOM_ID` (pick one room id, e.g. `cheesy-world-cup`)
+- `VITE_SIDE_LEFT_IMAGE` (optional, default `/side-left.jpg`)
+- `VITE_SIDE_RIGHT_IMAGE` (optional, default `/side-right.jpg`)
 
 ## 3) Verify locally
 
@@ -53,6 +55,8 @@ git push -u origin main
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
    - `VITE_SUPABASE_ROOM_ID`
+   - `VITE_SIDE_LEFT_IMAGE` (optional)
+   - `VITE_SIDE_RIGHT_IMAGE` (optional)
 5. Deploy.
 
 ## Notes

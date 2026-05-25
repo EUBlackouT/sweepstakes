@@ -11,3 +11,7 @@ services:
         sync: false
       - key: VITE_SUPABASE_ROOM_ID
         value: cheesy-world-cup
+      - key: VITE_SIDE_LEFT_IMAGE
+        value: /side-left.jpg
+      - key: VITE_SIDE_RIGHT_IMAGE
+        value: /side-right.jpg
