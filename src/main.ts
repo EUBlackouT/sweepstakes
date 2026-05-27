@@ -973,8 +973,19 @@ function lockFinalDraw(): void {
 
   const existingDraw = state.participants.every((p) => Boolean(p.teams));
   const existingDrawIsSafe = existingDraw && isCurrentDrawValid(groupMap, conflictMap);
-  if (!existingDrawIsSafe && !performConstrainedDraw(true)) {
-    return;
+  if (!existingDrawIsSafe) {
+    if (existingDraw) {
+      const forceLock = window.confirm(
+        'Current draw contains strict conflicts. Lock anyway to close entries with the current teams?',
+      );
+      if (!forceLock) {
+        if (!performConstrainedDraw(true)) {
+          return;
+        }
+      }
+    } else if (!performConstrainedDraw(true)) {
+      return;
+    }
   }
   state.locked = true;
   state.drawCompletedAt = new Date().toISOString();
