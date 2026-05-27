@@ -1038,15 +1038,8 @@ function generateConstrainedDraw(
   groupMap: Map<string, string>,
   conflictMap: Map<string, Set<string>>,
 ): DrawnTeams[] | null {
-  const seed1Assigned = shuffle([...seeds.seed1]).slice(0, participantCount);
-  const remainingPools: Partial<Record<SeedKey, string[]>> = {};
-  for (const seedKey of ACTIVE_SEED_KEYS) {
-    if (seedKey === 'seed1') {
-      continue;
-    }
-    remainingPools[seedKey] = shuffle([...seeds[seedKey]]);
-  }
-  const result: DrawnTeams[] = new Array(participantCount);
+  const otherSeedKeys = ACTIVE_SEED_KEYS.filter((seedKey) => seedKey !== 'seed1');
+  let seed1Assigned = shuffle([...seeds.seed1]).slice(0, participantCount);
 
   function areDifferentGroups(teamA: string, teamB: string): boolean {
     const groupA = groupMap.get(normalizeTeamName(teamA));
@@ -1061,57 +1054,84 @@ function generateConstrainedDraw(
     return areDifferentGroups(teamA, teamB) && areTeamsNonConflicting(teamA, teamB, conflictMap);
   }
 
-  function solve(index: number, pools: Partial<Record<SeedKey, string[]>>): boolean {
-    if (index >= participantCount) {
-      return true;
+  const maxAttempts = ACTIVE_SEED_KEYS.length >= 4 ? 1200 : 500;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (attempt > 0 && attempt % 8 === 0) {
+      seed1Assigned = shuffle([...seeds.seed1]).slice(0, participantCount);
     }
 
-    const seed1Team = seed1Assigned[index];
-    const otherSeedKeys = ACTIVE_SEED_KEYS.filter((seedKey) => seedKey !== 'seed1');
-    const assignment: Partial<Record<SeedKey, string>> = { seed1: seed1Team };
+    const pools: Partial<Record<SeedKey, string[]>> = {};
+    for (const seedKey of otherSeedKeys) {
+      pools[seedKey] = shuffle([...seeds[seedKey]]);
+    }
 
-    function assignOtherSeeds(
-      seedIndex: number,
-      currentPools: Partial<Record<SeedKey, string[]>>,
-    ): boolean {
-      if (seedIndex >= otherSeedKeys.length) {
-        result[index] = {
-          seed1: assignment.seed1!,
-          seed2: assignment.seed2!,
-          seed3: assignment.seed3!,
-          ...(assignment.seed4 ? { seed4: assignment.seed4 } : {}),
-        };
-        return solve(index + 1, currentPools);
-      }
+    const order = shuffle(Array.from({ length: participantCount }, (_, i) => i));
+    const staged: Array<DrawnTeams | null> = new Array(participantCount).fill(null);
+    let failed = false;
 
-      const seedKey = otherSeedKeys[seedIndex];
-      const pool = currentPools[seedKey] ?? [];
-      const alreadyAssigned = Object.values(assignment).filter((value): value is string =>
-        Boolean(value),
-      );
-      const candidates = shuffle(
-        pool.filter((candidate) => alreadyAssigned.every((team) => canPair(team, candidate))),
-      );
+    for (const participantIndex of order) {
+      const assignment: Partial<Record<SeedKey, string>> = {
+        seed1: seed1Assigned[participantIndex],
+      };
 
-      for (const candidate of candidates) {
-        assignment[seedKey] = candidate;
-        const nextPools: Partial<Record<SeedKey, string[]>> = {
-          ...currentPools,
-          [seedKey]: pool.filter((team) => team !== candidate),
-        };
-        if (assignOtherSeeds(seedIndex + 1, nextPools)) {
-          return true;
+      for (let seedIndex = 0; seedIndex < otherSeedKeys.length; seedIndex += 1) {
+        const seedKey = otherSeedKeys[seedIndex];
+        const pool = pools[seedKey] ?? [];
+        const alreadyAssigned = Object.values(assignment).filter((value): value is string =>
+          Boolean(value),
+        );
+        const candidates = shuffle(
+          pool.filter((candidate) => alreadyAssigned.every((team) => canPair(team, candidate))),
+        );
+        if (candidates.length === 0) {
+          failed = true;
+          break;
         }
+
+        let bestCandidate = candidates[0];
+        let bestScore = -1;
+        for (const candidate of candidates) {
+          const trialAssigned = [...alreadyAssigned, candidate];
+          let score = 0;
+          let viable = true;
+          for (let next = seedIndex + 1; next < otherSeedKeys.length; next += 1) {
+            const nextPool = pools[otherSeedKeys[next]] ?? [];
+            const compatible = nextPool.filter((team) => trialAssigned.every((t) => canPair(t, team)))
+              .length;
+            if (compatible === 0) {
+              viable = false;
+              break;
+            }
+            score += Math.min(compatible, 6);
+          }
+          if (viable && score > bestScore) {
+            bestScore = score;
+            bestCandidate = candidate;
+          }
+        }
+
+        assignment[seedKey] = bestCandidate;
+        pools[seedKey] = pool.filter((team) => team !== bestCandidate);
       }
 
-      delete assignment[seedKey];
-      return false;
+      if (failed) {
+        break;
+      }
+
+      staged[participantIndex] = {
+        seed1: assignment.seed1!,
+        seed2: assignment.seed2!,
+        seed3: assignment.seed3!,
+        ...(assignment.seed4 ? { seed4: assignment.seed4 } : {}),
+      };
     }
 
-    return assignOtherSeeds(0, pools);
+    if (!failed && staged.every((entry): entry is DrawnTeams => Boolean(entry))) {
+      return staged;
+    }
   }
 
-  return solve(0, remainingPools) ? result : null;
+  return null;
 }
 
 function clearDrawOnly(): void {
