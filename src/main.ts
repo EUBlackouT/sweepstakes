@@ -1,7 +1,7 @@
 import './style.css';
 import { getSupabaseClient, SUPABASE_ROOM_ID } from './supabase';
 
-type SeedKey = 'seed1' | 'seed2' | 'seed3';
+type SeedKey = 'seed1' | 'seed2' | 'seed3' | 'seed4';
 type MatchStatus = 'scheduled' | 'live' | 'finished';
 type MatchSource = 'manual' | 'api';
 
@@ -9,6 +9,7 @@ interface DrawnTeams {
   seed1: string;
   seed2: string;
   seed3: string;
+  seed4?: string;
 }
 
 interface Participant {
@@ -80,7 +81,7 @@ const POINTS = {
   goalBonus: 1,
 };
 
-const seeds: Record<SeedKey, string[]> = {
+const DEFAULT_SEEDS: Record<SeedKey, string[]> = {
   seed1: [
     'Argentina',
     'Belgium',
@@ -135,10 +136,82 @@ const seeds: Record<SeedKey, string[]> = {
     'Tunisia',
     'Uzbekistan',
   ],
+  seed4: [],
 };
 
-const allTeams = [...seeds.seed1, ...seeds.seed2, ...seeds.seed3];
+const ROOM_SEED_OVERRIDES: Record<string, Record<SeedKey, string[]>> = {
+  angrybunch: {
+    seed1: [
+      'Canada',
+      'Mexico',
+      'United States',
+      'Spain',
+      'Argentina',
+      'France',
+      'England',
+      'Brazil',
+      'Portugal',
+      'Netherlands',
+      'Belgium',
+      'Germany',
+    ],
+    seed2: [
+      'Croatia',
+      'Morocco',
+      'Colombia',
+      'Uruguay',
+      'Switzerland',
+      'Japan',
+      'Senegal',
+      'IR Iran',
+      'Korea Republic',
+      'Ecuador',
+      'Austria',
+      'Australia',
+    ],
+    seed3: [
+      'Norway',
+      'Panama',
+      'Egypt',
+      'Algeria',
+      'Scotland',
+      'Paraguay',
+      'Tunisia',
+      'Ivory Coast',
+      'Uzbekistan',
+      'Qatar',
+      'Saudi Arabia',
+      'South Africa',
+    ],
+    seed4: [
+      'Jordan',
+      'Cape Verde',
+      'Ghana',
+      'Curacao',
+      'Haiti',
+      'New Zealand',
+      'Sweden',
+      'Bosnia and Herzegovina',
+      'Iraq',
+      'DR Congo',
+      'Turkey',
+      'Czech Republic',
+    ],
+  },
+};
+
+function getSeedsForRoom(roomId: string): Record<SeedKey, string[]> {
+  const roomKey = roomId.trim().toLowerCase();
+  const override = ROOM_SEED_OVERRIDES[roomKey];
+  return override ?? DEFAULT_SEEDS;
+}
+
+const seeds = getSeedsForRoom(SUPABASE_ROOM_ID);
+const ALL_SEED_KEYS: SeedKey[] = ['seed1', 'seed2', 'seed3', 'seed4'];
+const ACTIVE_SEED_KEYS: SeedKey[] = ALL_SEED_KEYS.filter((seedKey) => seeds[seedKey].length > 0);
+const allTeams = ACTIVE_SEED_KEYS.flatMap((seedKey) => seeds[seedKey]);
 const normalizedTeamSet = new Set(allTeams.map(normalizeTeamName));
+const MAX_DRAW_PARTICIPANTS = Math.min(...ACTIVE_SEED_KEYS.map((seedKey) => seeds[seedKey].length));
 const TEAM_FLAG_CODES: Record<string, string> = {
   argentina: 'AR',
   belgium: 'BE',
@@ -163,8 +236,10 @@ const TEAM_FLAG_CODES: Record<string, string> = {
   ecuador: 'EC',
   egypt: 'EG',
   iran: 'IR',
+  'ir iran': 'IR',
   'ivory coast': 'CI',
   japan: 'JP',
+  'korea republic': 'KR',
   norway: 'NO',
   panama: 'PA',
   paraguay: 'PY',
@@ -440,6 +515,8 @@ function formatCloudError(error: unknown): string {
 function render(): void {
   const leaderboard = buildLeaderboard();
   const viewerTimeZone = getViewerTimezone();
+  const participantTableColspan = 2 + ACTIVE_SEED_KEYS.length;
+  const seedHeaders = ACTIVE_SEED_KEYS.map((_, index) => `<th>Seed ${index + 1}</th>`).join('');
   const hasDrawResults = state.locked && state.participants.some((p) => Boolean(p.teams));
   if (selectedParticipantId && !state.participants.some((p) => p.id === selectedParticipantId)) {
     selectedParticipantId = null;
@@ -498,14 +575,14 @@ function render(): void {
                   ${
                     adminUnlocked
                       ? `
-                        <button id="run-draw" ${state.participants.length < 1 ? 'disabled' : ''}>Roll Teams (RNG)</button>
-                        <button id="lock-draw" class="ghost" ${state.participants.length < 1 ? 'disabled' : ''}>Lock Final Draw</button>
+                        <button id="run-draw" ${state.participants.length < 1 || state.participants.length > MAX_DRAW_PARTICIPANTS ? 'disabled' : ''}>Roll Teams (RNG)</button>
+                        <button id="lock-draw" class="ghost" ${state.participants.length < 1 || state.participants.length > MAX_DRAW_PARTICIPANTS ? 'disabled' : ''}>Lock Final Draw</button>
                         <button id="reset-all" class="danger">Reset</button>
                       `
                       : '<span class="hint">Admin draw buttons are hidden until PIN unlock.</span>'
                   }
                 </div>
-                <p class="hint">Once draw is locked, the interface switches to clean viewer mode with only live sections.</p>
+                <p class="hint">Once draw is locked, the interface switches to clean viewer mode with only live sections. This room supports up to ${MAX_DRAW_PARTICIPANTS} players.</p>
               </section>
             `
         }
@@ -524,24 +601,22 @@ function render(): void {
               <thead>
                 <tr>
                   <th>Player</th>
-                  <th>Seed 1</th>
-                  <th>Seed 2</th>
-                  <th>Seed 3</th>
+                  ${seedHeaders}
                   <th>${adminUnlocked ? '' : ''}</th>
                 </tr>
               </thead>
               <tbody>
                 ${
                   state.participants.length === 0
-                    ? '<tr><td colspan="5" class="empty">No players joined yet.</td></tr>'
+                    ? `<tr><td colspan="${participantTableColspan}" class="empty">No players joined yet.</td></tr>`
                     : state.participants
                         .map(
                           (p) => `
                             <tr>
                               <td>${escapeHtml(p.name)}</td>
-                              <td>${escapeHtml(p.teams?.seed1 ?? '-')}</td>
-                              <td>${escapeHtml(p.teams?.seed2 ?? '-')}</td>
-                              <td>${escapeHtml(p.teams?.seed3 ?? '-')}</td>
+                              ${ACTIVE_SEED_KEYS.map(
+                                (seedKey) => `<td>${escapeHtml(p.teams?.[seedKey] ?? '-')}</td>`,
+                              ).join('')}
                               <td>${adminUnlocked ? `<button class="ghost small remove-player" data-id="${p.id}" ${state.locked ? 'disabled' : ''}>Remove</button>` : ''}</td>
                             </tr>
                           `,
@@ -727,12 +802,15 @@ function render(): void {
             selectedParticipant?.teams
               ? `
                 <div class="owned-teams">
-                  <span class="team-pill">${teamFlagIcon(selectedParticipant.teams.seed1)} ${escapeHtml(selectedParticipant.teams.seed1)}</span>
-                  <span class="team-pill">${teamFlagIcon(selectedParticipant.teams.seed2)} ${escapeHtml(selectedParticipant.teams.seed2)}</span>
-                  <span class="team-pill">${teamFlagIcon(selectedParticipant.teams.seed3)} ${escapeHtml(selectedParticipant.teams.seed3)}</span>
+                  ${getAssignedTeams(selectedParticipant.teams)
+                    .map(
+                      (team) =>
+                        `<span class="team-pill">${teamFlagIcon(team)} ${escapeHtml(team)}</span>`,
+                    )
+                    .join('')}
                 </div>
               `
-              : '<p class="hint">After draw lock, this profile will show all 3 assigned teams here.</p>'
+              : `<p class="hint">After draw lock, this profile will show all ${ACTIVE_SEED_KEYS.length} assigned teams here.</p>`
           }
           <div class="table-wrap schedule-wrap">
             <table class="schedule-table">
@@ -856,6 +934,10 @@ function runDraw(): void {
   if (state.participants.length < 1) {
     return;
   }
+  if (state.participants.length > MAX_DRAW_PARTICIPANTS) {
+    window.alert(`This room supports up to ${MAX_DRAW_PARTICIPANTS} players for the current pots.`);
+    return;
+  }
   if (!performConstrainedDraw()) {
     return;
   }
@@ -873,6 +955,10 @@ function lockFinalDraw(): void {
     return;
   }
   if (state.participants.length < 1) {
+    return;
+  }
+  if (state.participants.length > MAX_DRAW_PARTICIPANTS) {
+    window.alert(`This room supports up to ${MAX_DRAW_PARTICIPANTS} players for the current pots.`);
     return;
   }
   const groupMap = buildGroupMapFromMatches(state.matches);
@@ -924,23 +1010,26 @@ function isCurrentDrawValid(
     if (!participant.teams) {
       return false;
     }
-    const g1 = groupMap.get(normalizeTeamName(participant.teams.seed1));
-    const g2 = groupMap.get(normalizeTeamName(participant.teams.seed2));
-    const g3 = groupMap.get(normalizeTeamName(participant.teams.seed3));
-    if (!g1 || !g2 || !g3) {
+    const teams = getAssignedTeams(participant.teams);
+    if (teams.length !== ACTIVE_SEED_KEYS.length) {
       return false;
     }
-    const t1 = normalizeTeamName(participant.teams.seed1);
-    const t2 = normalizeTeamName(participant.teams.seed2);
-    const t3 = normalizeTeamName(participant.teams.seed3);
-    return (
-      g1 !== g2 &&
-      g1 !== g3 &&
-      g2 !== g3 &&
-      areTeamsNonConflicting(t1, t2, conflictMap) &&
-      areTeamsNonConflicting(t1, t3, conflictMap) &&
-      areTeamsNonConflicting(t2, t3, conflictMap)
-    );
+    const normalized = teams.map(normalizeTeamName);
+    const groups = normalized.map((team) => groupMap.get(team));
+    if (groups.some((group) => !group)) {
+      return false;
+    }
+    if (new Set(groups).size !== groups.length) {
+      return false;
+    }
+    for (let i = 0; i < normalized.length; i += 1) {
+      for (let j = i + 1; j < normalized.length; j += 1) {
+        if (!areTeamsNonConflicting(normalized[i], normalized[j], conflictMap)) {
+          return false;
+        }
+      }
+    }
+    return true;
   });
 }
 
@@ -950,8 +1039,13 @@ function generateConstrainedDraw(
   conflictMap: Map<string, Set<string>>,
 ): DrawnTeams[] | null {
   const seed1Assigned = shuffle([...seeds.seed1]).slice(0, participantCount);
-  const seed2Pool = shuffle([...seeds.seed2]);
-  const seed3Pool = shuffle([...seeds.seed3]);
+  const remainingPools: Partial<Record<SeedKey, string[]>> = {};
+  for (const seedKey of ACTIVE_SEED_KEYS) {
+    if (seedKey === 'seed1') {
+      continue;
+    }
+    remainingPools[seedKey] = shuffle([...seeds[seedKey]]);
+  }
   const result: DrawnTeams[] = new Array(participantCount);
 
   function areDifferentGroups(teamA: string, teamB: string): boolean {
@@ -967,41 +1061,57 @@ function generateConstrainedDraw(
     return areDifferentGroups(teamA, teamB) && areTeamsNonConflicting(teamA, teamB, conflictMap);
   }
 
-  function solve(index: number, remainingSeed2: string[], remainingSeed3: string[]): boolean {
+  function solve(index: number, pools: Partial<Record<SeedKey, string[]>>): boolean {
     if (index >= participantCount) {
       return true;
     }
 
     const seed1Team = seed1Assigned[index];
-    const candidateSeed2 = shuffle(
-      remainingSeed2.filter((team2) => canPair(seed1Team, team2)),
-    );
+    const otherSeedKeys = ACTIVE_SEED_KEYS.filter((seedKey) => seedKey !== 'seed1');
+    const assignment: Partial<Record<SeedKey, string>> = { seed1: seed1Team };
 
-    for (const team2 of candidateSeed2) {
-      const nextSeed2 = remainingSeed2.filter((team) => team !== team2);
-      const candidateSeed3 = shuffle(
-        remainingSeed3.filter(
-          (team3) => canPair(seed1Team, team3) && canPair(team2, team3),
-        ),
+    function assignOtherSeeds(
+      seedIndex: number,
+      currentPools: Partial<Record<SeedKey, string[]>>,
+    ): boolean {
+      if (seedIndex >= otherSeedKeys.length) {
+        result[index] = {
+          seed1: assignment.seed1!,
+          seed2: assignment.seed2!,
+          seed3: assignment.seed3!,
+          ...(assignment.seed4 ? { seed4: assignment.seed4 } : {}),
+        };
+        return solve(index + 1, currentPools);
+      }
+
+      const seedKey = otherSeedKeys[seedIndex];
+      const pool = currentPools[seedKey] ?? [];
+      const alreadyAssigned = Object.values(assignment).filter((value): value is string =>
+        Boolean(value),
+      );
+      const candidates = shuffle(
+        pool.filter((candidate) => alreadyAssigned.every((team) => canPair(team, candidate))),
       );
 
-      for (const team3 of candidateSeed3) {
-        result[index] = {
-          seed1: seed1Team,
-          seed2: team2,
-          seed3: team3,
+      for (const candidate of candidates) {
+        assignment[seedKey] = candidate;
+        const nextPools: Partial<Record<SeedKey, string[]>> = {
+          ...currentPools,
+          [seedKey]: pool.filter((team) => team !== candidate),
         };
-        const nextSeed3 = remainingSeed3.filter((team) => team !== team3);
-        if (solve(index + 1, nextSeed2, nextSeed3)) {
+        if (assignOtherSeeds(seedIndex + 1, nextPools)) {
           return true;
         }
       }
+
+      delete assignment[seedKey];
+      return false;
     }
 
-    return false;
+    return assignOtherSeeds(0, pools);
   }
 
-  return solve(0, seed2Pool, seed3Pool) ? result : null;
+  return solve(0, remainingPools) ? result : null;
 }
 
 function clearDrawOnly(): void {
@@ -1439,14 +1549,22 @@ function getLiveMatches(): Match[] {
   return state.matches.filter((m) => m.status === 'live');
 }
 
+function getAssignedTeams(teams: DrawnTeams | undefined): string[] {
+  if (!teams) {
+    return [];
+  }
+  return ACTIVE_SEED_KEYS.map((seedKey) => teams[seedKey]).filter(
+    (team): team is string => Boolean(team),
+  );
+}
+
 function getTeamOwnersMap(): Map<string, string[]> {
   const teamOwners = new Map<string, string[]>();
   for (const participant of state.participants) {
     if (!participant.teams) {
       continue;
     }
-    const ownedTeams = [participant.teams.seed1, participant.teams.seed2, participant.teams.seed3];
-    for (const team of ownedTeams) {
+    for (const team of getAssignedTeams(participant.teams)) {
       const key = normalizeTeamName(team);
       const owners = teamOwners.get(key) ?? [];
       owners.push(participant.name);
@@ -1537,7 +1655,7 @@ function getPersonalMatchesFromMatches(
   sourceMatches: Match[],
   teams: DrawnTeams,
 ): PersonalMatch[] {
-  const teamSet = new Set([teams.seed1, teams.seed2, teams.seed3].map(normalizeTeamName));
+  const teamSet = new Set(getAssignedTeams(teams).map(normalizeTeamName));
   return sourceMatches
     .filter((match) => {
       const home = normalizeTeamName(match.homeTeam);
@@ -1573,11 +1691,7 @@ function buildLeaderboard(): Array<{
   const rows = state.participants
     .filter((p) => Boolean(p.teams))
     .map((participant) => {
-      const teams = [
-        normalizeTeamName(participant.teams!.seed1),
-        normalizeTeamName(participant.teams!.seed2),
-        normalizeTeamName(participant.teams!.seed3),
-      ];
+      const teams = getAssignedTeams(participant.teams!).map(normalizeTeamName);
       let points = 0;
       let wins = 0;
       let draws = 0;
@@ -1756,19 +1870,35 @@ function teamFlagIcon(teamName: string): string {
 }
 
 function normalizeTeamName(value: string): string {
-  return value
+  const normalized = value
     .trim()
     .toLowerCase()
     .replaceAll('&', 'and')
     .replaceAll('.', '')
+    .replaceAll("'", '')
+    .replaceAll('’', '')
     .replaceAll('-', ' ')
     .replaceAll('  ', ' ')
     .replace('usa', 'united states')
+    .replace('korea republic', 'south korea')
+    .replace('ir iran', 'iran')
+    .replace('cote divoire', 'ivory coast')
     .replace('bosnia herzegovin', 'bosnia and herzegovina')
     .replace('bosnia-herzegovin', 'bosnia and herzegovina')
     .replace('curacao', 'curacao')
     .replace('ivory coast', 'ivory coast')
     .replace('dr congo', 'dr congo');
+
+  const aliases: Record<string, string> = {
+    'cabo verde': 'cape verde',
+    'curaçao': 'curacao',
+    bosnia: 'bosnia and herzegovina',
+    congo: 'dr congo',
+    czechia: 'czech republic',
+    chechia: 'czech republic',
+  };
+
+  return aliases[normalized] ?? normalized;
 }
 
 function prettifyTeamName(value: string): string {
