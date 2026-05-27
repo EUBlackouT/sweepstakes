@@ -962,44 +962,11 @@ function lockFinalDraw(): void {
     return;
   }
   const existingDraw = state.participants.every((p) => Boolean(p.teams));
-  const groupMap = buildGroupMapFromMatches(state.matches);
-  const conflictMap = buildTeamConflictMap(state.matches);
-  const missingGroupTeams = allTeams.filter((team) => !groupMap.has(normalizeTeamName(team)));
-  if (missingGroupTeams.length > 0) {
-    if (!existingDraw) {
-      window.alert(
-        'Cannot lock final draw yet: group mapping data is incomplete. Refresh live data and try again.',
-      );
-      return;
-    }
-    const forceLockIncompleteData = window.confirm(
-      'Live group data is incomplete. Lock current draw anyway and close entries?',
+  if (!existingDraw) {
+    const lockWithoutFullDraw = window.confirm(
+      'Some players do not have assigned teams yet. Lock anyway and close entries?',
     );
-    if (!forceLockIncompleteData) {
-      return;
-    }
-    state.locked = true;
-    state.drawCompletedAt = new Date().toISOString();
-    if (!selectedParticipantId && state.participants[0]) {
-      selectedParticipantId = state.participants[0].id;
-      localStorage.setItem(SELECTED_PROFILE_KEY, selectedParticipantId);
-    }
-    saveAndRender();
-    return;
-  }
-
-  const existingDrawIsSafe = existingDraw && isCurrentDrawValid(groupMap, conflictMap);
-  if (!existingDrawIsSafe) {
-    if (existingDraw) {
-      const forceLock = window.confirm(
-        'Current draw contains strict conflicts. Lock anyway to close entries with the current teams?',
-      );
-      if (!forceLock) {
-        if (!performConstrainedDraw(true)) {
-          return;
-        }
-      }
-    } else if (!performConstrainedDraw(true)) {
+    if (!lockWithoutFullDraw) {
       return;
     }
   }
@@ -1041,37 +1008,6 @@ function performConstrainedDraw(strictOnly: boolean): boolean {
   }));
   return true;
 }
-function isCurrentDrawValid(
-  groupMap: Map<string, string>,
-  conflictMap: Map<string, Set<string>>,
-): boolean {
-  return state.participants.every((participant) => {
-    if (!participant.teams) {
-      return false;
-    }
-    const teams = getAssignedTeams(participant.teams);
-    if (teams.length !== ACTIVE_SEED_KEYS.length) {
-      return false;
-    }
-    const normalized = teams.map(normalizeTeamName);
-    const groups = normalized.map((team) => groupMap.get(team));
-    if (groups.some((group) => !group)) {
-      return false;
-    }
-    if (new Set(groups).size !== groups.length) {
-      return false;
-    }
-    for (let i = 0; i < normalized.length; i += 1) {
-      for (let j = i + 1; j < normalized.length; j += 1) {
-        if (!areTeamsNonConflicting(normalized[i], normalized[j], conflictMap)) {
-          return false;
-        }
-      }
-    }
-    return true;
-  });
-}
-
 function generateConstrainedDraw(
   participantCount: number,
   groupMap: Map<string, string>,
