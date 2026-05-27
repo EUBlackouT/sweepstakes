@@ -938,7 +938,7 @@ function runDraw(): void {
     window.alert(`This room supports up to ${MAX_DRAW_PARTICIPANTS} players for the current pots.`);
     return;
   }
-  if (!performConstrainedDraw()) {
+  if (!performConstrainedDraw(false)) {
     return;
   }
   state.locked = false;
@@ -973,7 +973,7 @@ function lockFinalDraw(): void {
 
   const existingDraw = state.participants.every((p) => Boolean(p.teams));
   const existingDrawIsSafe = existingDraw && isCurrentDrawValid(groupMap, conflictMap);
-  if (!existingDrawIsSafe && !performConstrainedDraw()) {
+  if (!existingDrawIsSafe && !performConstrainedDraw(true)) {
     return;
   }
   state.locked = true;
@@ -985,13 +985,25 @@ function lockFinalDraw(): void {
   saveAndRender();
 }
 
-function performConstrainedDraw(): boolean {
+function performConstrainedDraw(strictOnly: boolean): boolean {
   const groupMap = buildGroupMapFromMatches(state.matches);
   const conflictMap = buildTeamConflictMap(state.matches);
-  const draw = generateConstrainedDraw(state.participants.length, groupMap, conflictMap);
+  const strictDraw = generateConstrainedDraw(state.participants.length, groupMap, conflictMap);
+  let draw = strictDraw;
+  if (!draw && !strictOnly) {
+    // Fallback for rapid rolling when fixture conflict graph is too constrained.
+    draw = generateConstrainedDraw(state.participants.length, groupMap, new Map());
+    if (draw) {
+      window.alert(
+        'Rolled with group safety, but strict self-vs-self fixture avoidance was not possible this attempt.',
+      );
+    }
+  }
   if (!draw) {
     window.alert(
-      'Could not produce a valid draw without same-group or self-vs-self conflicts. Please click draw again.',
+      strictOnly
+        ? 'Could not produce a lock-safe draw. Try Roll Teams again, then lock once no clashes remain.'
+        : 'Could not produce a valid draw at this time. Please click draw again.',
     );
     return false;
   }
@@ -1045,7 +1057,8 @@ function generateConstrainedDraw(
     const groupA = groupMap.get(normalizeTeamName(teamA));
     const groupB = groupMap.get(normalizeTeamName(teamB));
     if (!groupA || !groupB) {
-      return false;
+      // If group data is not published yet for a team, do not hard-fail rolling.
+      return true;
     }
     return groupA !== groupB;
   }
