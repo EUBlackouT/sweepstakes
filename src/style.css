@@ -380,6 +380,25 @@ tbody tr:last-child td {
   border-left: 4px solid #60a5fa;
 }
 
+.participants-dropdown summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 700;
+  padding: 2px 0 8px;
+}
+
+.participants-dropdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.participants-dropdown-content {
+  padding-top: 8px;
+}
+
 .live-section {
   border-left: 4px solid #34d399;
 }

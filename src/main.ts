@@ -588,44 +588,89 @@ function render(): void {
         }
 
         <section class="card full participants-section">
-          <div class="card-head">
-            <h2>Contestants and Assigned Teams</h2>
-            ${
-              hasDrawResults && adminUnlocked
-                ? '<button id="clear-draw" class="ghost small">Clear Current Draw</button>'
-                : ''
-            }
-          </div>
-          <div class="table-wrap">
-            <table class="participants-table">
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  ${seedHeaders}
-                  <th>${adminUnlocked ? '' : ''}</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${
-                  state.participants.length === 0
-                    ? `<tr><td colspan="${participantTableColspan}" class="empty">No players joined yet.</td></tr>`
-                    : state.participants
-                        .map(
-                          (p) => `
-                            <tr>
-                              <td>${escapeHtml(p.name)}</td>
-                              ${ACTIVE_SEED_KEYS.map(
-                                (seedKey) => `<td>${escapeHtml(p.teams?.[seedKey] ?? '-')}</td>`,
-                              ).join('')}
-                              <td>${adminUnlocked ? `<button class="ghost small remove-player" data-id="${p.id}" ${state.locked ? 'disabled' : ''}>Remove</button>` : ''}</td>
-                            </tr>
-                          `,
-                        )
-                        .join('')
-                }
-              </tbody>
-            </table>
-          </div>
+          ${
+            hasDrawResults
+              ? `
+                <details class="participants-dropdown">
+                  <summary>
+                    <span>Contestants and Assigned Teams</span>
+                    <span class="badge">${state.participants.length} players</span>
+                  </summary>
+                  <div class="participants-dropdown-content">
+                    ${
+                      adminUnlocked
+                        ? '<div class="actions"><button id="clear-draw" class="ghost small">Clear Current Draw</button></div>'
+                        : ''
+                    }
+                    <div class="table-wrap">
+                      <table class="participants-table">
+                        <thead>
+                          <tr>
+                            <th>Player</th>
+                            ${seedHeaders}
+                            <th>${adminUnlocked ? '' : ''}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${
+                            state.participants.length === 0
+                              ? `<tr><td colspan="${participantTableColspan}" class="empty">No players joined yet.</td></tr>`
+                              : state.participants
+                                  .map(
+                                    (p) => `
+                                      <tr>
+                                        <td>${escapeHtml(p.name)}</td>
+                                        ${ACTIVE_SEED_KEYS.map(
+                                          (seedKey) => `<td>${escapeHtml(p.teams?.[seedKey] ?? '-')}</td>`,
+                                        ).join('')}
+                                        <td>${adminUnlocked ? `<button class="ghost small remove-player" data-id="${p.id}" ${state.locked ? 'disabled' : ''}>Remove</button>` : ''}</td>
+                                      </tr>
+                                    `,
+                                  )
+                                  .join('')
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </details>
+              `
+              : `
+                <div class="card-head">
+                  <h2>Contestants and Assigned Teams</h2>
+                </div>
+                <div class="table-wrap">
+                  <table class="participants-table">
+                    <thead>
+                      <tr>
+                        <th>Player</th>
+                        ${seedHeaders}
+                        <th>${adminUnlocked ? '' : ''}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${
+                        state.participants.length === 0
+                          ? `<tr><td colspan="${participantTableColspan}" class="empty">No players joined yet.</td></tr>`
+                          : state.participants
+                              .map(
+                                (p) => `
+                                  <tr>
+                                    <td>${escapeHtml(p.name)}</td>
+                                    ${ACTIVE_SEED_KEYS.map(
+                                      (seedKey) => `<td>${escapeHtml(p.teams?.[seedKey] ?? '-')}</td>`,
+                                    ).join('')}
+                                    <td>${adminUnlocked ? `<button class="ghost small remove-player" data-id="${p.id}" ${state.locked ? 'disabled' : ''}>Remove</button>` : ''}</td>
+                                  </tr>
+                                `,
+                              )
+                              .join('')
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              `
+          }
         </section>
 
         <section class="card full live-section">
