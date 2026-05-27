@@ -961,17 +961,33 @@ function lockFinalDraw(): void {
     window.alert(`This room supports up to ${MAX_DRAW_PARTICIPANTS} players for the current pots.`);
     return;
   }
+  const existingDraw = state.participants.every((p) => Boolean(p.teams));
   const groupMap = buildGroupMapFromMatches(state.matches);
   const conflictMap = buildTeamConflictMap(state.matches);
   const missingGroupTeams = allTeams.filter((team) => !groupMap.has(normalizeTeamName(team)));
   if (missingGroupTeams.length > 0) {
-    window.alert(
-      'Cannot lock final draw yet: group mapping data is incomplete. Refresh live data and try again.',
+    if (!existingDraw) {
+      window.alert(
+        'Cannot lock final draw yet: group mapping data is incomplete. Refresh live data and try again.',
+      );
+      return;
+    }
+    const forceLockIncompleteData = window.confirm(
+      'Live group data is incomplete. Lock current draw anyway and close entries?',
     );
+    if (!forceLockIncompleteData) {
+      return;
+    }
+    state.locked = true;
+    state.drawCompletedAt = new Date().toISOString();
+    if (!selectedParticipantId && state.participants[0]) {
+      selectedParticipantId = state.participants[0].id;
+      localStorage.setItem(SELECTED_PROFILE_KEY, selectedParticipantId);
+    }
+    saveAndRender();
     return;
   }
 
-  const existingDraw = state.participants.every((p) => Boolean(p.teams));
   const existingDrawIsSafe = existingDraw && isCurrentDrawValid(groupMap, conflictMap);
   if (!existingDrawIsSafe) {
     if (existingDraw) {
