@@ -64,6 +64,11 @@ interface AppStateRow {
   updated_at: string;
 }
 
+interface GroupDefinition {
+  name: string;
+  teams: string[];
+}
+
 const STORAGE_KEY = 'world-cup-sweepstake-v2';
 const SELECTED_PROFILE_KEY = 'sweepstake-selected-profile';
 const LEGACY_ADMIN_SESSION_KEY = 'sweepstake-admin-unlocked';
@@ -212,6 +217,21 @@ const ACTIVE_SEED_KEYS: SeedKey[] = ALL_SEED_KEYS.filter((seedKey) => seeds[seed
 const allTeams = ACTIVE_SEED_KEYS.flatMap((seedKey) => seeds[seedKey]);
 const normalizedTeamSet = new Set(allTeams.map(normalizeTeamName));
 const MAX_DRAW_PARTICIPANTS = Math.min(...ACTIVE_SEED_KEYS.map((seedKey) => seeds[seedKey].length));
+const IS_ANGRY_BUNCH_ROOM = SUPABASE_ROOM_ID.trim().toLowerCase() === 'angrybunch';
+const ANGRY_BUNCH_GROUPS: GroupDefinition[] = [
+  { name: 'Group A', teams: ['Mexico', 'South Africa', 'Korea Republic', 'Czech Republic'] },
+  { name: 'Group B', teams: ['Canada', 'Bosnia and Herzegovina', 'Qatar', 'Switzerland'] },
+  { name: 'Group C', teams: ['Brazil', 'Morocco', 'Haiti', 'Scotland'] },
+  { name: 'Group D', teams: ['United States', 'Paraguay', 'Australia', 'Turkey'] },
+  { name: 'Group E', teams: ['Germany', 'Curacao', 'Ivory Coast', 'Ecuador'] },
+  { name: 'Group F', teams: ['Netherlands', 'Japan', 'Sweden', 'Tunisia'] },
+  { name: 'Group G', teams: ['Belgium', 'Egypt', 'IR Iran', 'New Zealand'] },
+  { name: 'Group H', teams: ['Spain', 'Cape Verde', 'Saudi Arabia', 'Uruguay'] },
+  { name: 'Group I', teams: ['France', 'Senegal', 'Iraq', 'Norway'] },
+  { name: 'Group J', teams: ['Argentina', 'Algeria', 'Austria', 'Jordan'] },
+  { name: 'Group K', teams: ['Portugal', 'DR Congo', 'Uzbekistan', 'Colombia'] },
+  { name: 'Group L', teams: ['England', 'Croatia', 'Ghana', 'Panama'] },
+];
 const TEAM_FLAG_CODES: Record<string, string> = {
   argentina: 'AR',
   belgium: 'BE',
@@ -672,6 +692,41 @@ function render(): void {
               `
           }
         </section>
+
+        ${
+          IS_ANGRY_BUNCH_ROOM
+            ? `
+              <section class="card full groups-section">
+                <details class="groups-dropdown">
+                  <summary>
+                    <span>World Cup Groups (AngryBunch)</span>
+                    <span class="badge">${ANGRY_BUNCH_GROUPS.length} groups</span>
+                  </summary>
+                  <div class="groups-grid">
+                    ${ANGRY_BUNCH_GROUPS.map(
+                      (group) => `
+                        <article class="group-card">
+                          <h3>${escapeHtml(group.name)}</h3>
+                          <ul>
+                            ${group.teams
+                              .map((team) => {
+                                const owners = getOwnersForTeam(team, teamOwners);
+                                return `<li>
+                                  <span class="cell-inline">${teamFlagIcon(team)} ${escapeHtml(team)}</span>
+                                  ${owners.length > 0 ? `<span class="group-owner">🎯 ${escapeHtml(formatOwners(owners))}</span>` : ''}
+                                </li>`;
+                              })
+                              .join('')}
+                          </ul>
+                        </article>
+                      `,
+                    ).join('')}
+                  </div>
+                </details>
+              </section>
+            `
+            : ''
+        }
 
         <section class="card full live-section">
           <div class="card-head">

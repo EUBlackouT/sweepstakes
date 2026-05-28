@@ -399,6 +399,65 @@ tbody tr:last-child td {
   padding-top: 8px;
 }
 
+.groups-section {
+  border-left: 4px solid #f59e0b;
+}
+
+.groups-dropdown summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.groups-dropdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.groups-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.group-card {
+  border: 1px solid #3f6b86;
+  border-radius: 12px;
+  padding: 10px 11px;
+  background: linear-gradient(160deg, #123246, #0f2636 72%);
+}
+
+.group-card h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: #c6ecff;
+}
+
+.group-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.group-card li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.group-owner {
+  font-size: 0.72rem;
+  color: #9ee7be;
+  white-space: nowrap;
+}
+
 .live-section {
   border-left: 4px solid #34d399;
 }
