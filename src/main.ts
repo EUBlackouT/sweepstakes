@@ -1093,6 +1093,14 @@ function performConstrainedDraw(strictOnly: boolean): boolean {
       );
     }
   }
+  if (!draw && !strictOnly) {
+    draw = generateBasicSeedDraw(state.participants.length);
+    if (draw) {
+      window.alert(
+        'Rolled using basic seed assignment fallback to avoid failure. Teams still remain one per seed.',
+      );
+    }
+  }
   if (!draw) {
     window.alert(
       strictOnly
@@ -1208,6 +1216,24 @@ function generateConstrainedDraw(
   }
 
   return null;
+}
+
+function generateBasicSeedDraw(participantCount: number): DrawnTeams[] | null {
+  if (participantCount < 1 || participantCount > MAX_DRAW_PARTICIPANTS) {
+    return null;
+  }
+
+  const seed1Pool = shuffle([...seeds.seed1]).slice(0, participantCount);
+  const seed2Pool = shuffle([...seeds.seed2]).slice(0, participantCount);
+  const seed3Pool = shuffle([...seeds.seed3]).slice(0, participantCount);
+  const seed4Pool = seeds.seed4.length > 0 ? shuffle([...seeds.seed4]).slice(0, participantCount) : [];
+
+  return Array.from({ length: participantCount }, (_, index) => ({
+    seed1: seed1Pool[index],
+    seed2: seed2Pool[index],
+    seed3: seed3Pool[index],
+    ...(seed4Pool.length > 0 ? { seed4: seed4Pool[index] } : {}),
+  }));
 }
 
 function clearDrawOnly(): void {
