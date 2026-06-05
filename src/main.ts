@@ -217,8 +217,9 @@ const ACTIVE_SEED_KEYS: SeedKey[] = ALL_SEED_KEYS.filter((seedKey) => seeds[seed
 const allTeams = ACTIVE_SEED_KEYS.flatMap((seedKey) => seeds[seedKey]);
 const normalizedTeamSet = new Set(allTeams.map(normalizeTeamName));
 const MAX_DRAW_PARTICIPANTS = Math.min(...ACTIVE_SEED_KEYS.map((seedKey) => seeds[seedKey].length));
-const IS_ANGRY_BUNCH_ROOM = SUPABASE_ROOM_ID.trim().toLowerCase() === 'angrybunch';
-const ANGRY_BUNCH_GROUPS: GroupDefinition[] = [
+const GROUPS_DROPDOWN_ROOMS = new Set(['angrybunch', 'cheez']);
+const SHOW_GROUPS_DROPDOWN = GROUPS_DROPDOWN_ROOMS.has(SUPABASE_ROOM_ID.trim().toLowerCase());
+const WORLD_CUP_GROUPS: GroupDefinition[] = [
   { name: 'Group A', teams: ['Mexico', 'South Africa', 'Korea Republic', 'Czech Republic'] },
   { name: 'Group B', teams: ['Canada', 'Bosnia and Herzegovina', 'Qatar', 'Switzerland'] },
   { name: 'Group C', teams: ['Brazil', 'Morocco', 'Haiti', 'Scotland'] },
@@ -694,16 +695,16 @@ function render(): void {
         </section>
 
         ${
-          IS_ANGRY_BUNCH_ROOM
+          SHOW_GROUPS_DROPDOWN
             ? `
               <section class="card full groups-section">
                 <details class="groups-dropdown">
                   <summary>
-                    <span>World Cup Groups (AngryBunch)</span>
-                    <span class="badge">${ANGRY_BUNCH_GROUPS.length} groups</span>
+                    <span>World Cup Groups</span>
+                    <span class="badge">${WORLD_CUP_GROUPS.length} groups</span>
                   </summary>
                   <div class="groups-grid">
-                    ${ANGRY_BUNCH_GROUPS.map(
+                    ${WORLD_CUP_GROUPS.map(
                       (group) => `
                         <article class="group-card">
                           <h3>${escapeHtml(group.name)}</h3>
