@@ -8,7 +8,7 @@ type MatchSource = 'manual' | 'api';
 interface DrawnTeams {
   seed1: string;
   seed2: string;
-  seed3: string;
+  seed3?: string;
   seed4?: string;
 }
 
@@ -144,7 +144,66 @@ const DEFAULT_SEEDS: Record<SeedKey, string[]> = {
   seed4: [],
 };
 
+const CHEEZ_SEEDS: Record<SeedKey, string[]> = {
+  seed1: [
+    'France',
+    'Spain',
+    'Argentina',
+    'England',
+    'Portugal',
+    'Brazil',
+    'Netherlands',
+    'Morocco',
+    'Belgium',
+    'Germany',
+    'Croatia',
+    'Colombia',
+    'Senegal',
+    'Mexico',
+    'United States',
+    'Uruguay',
+    'Japan',
+    'Switzerland',
+    'Iran',
+    'Turkey',
+    'Ecuador',
+    'Austria',
+    'South Korea',
+    'Australia',
+  ],
+  seed2: [
+    'Algeria',
+    'Egypt',
+    'Canada',
+    'Norway',
+    'Panama',
+    'Ivory Coast',
+    'Sweden',
+    'Paraguay',
+    'Czech Republic',
+    'Scotland',
+    'Tunisia',
+    'DR Congo',
+    'Uzbekistan',
+    'Qatar',
+    'Iraq',
+    'South Africa',
+    'Saudi Arabia',
+    'Jordan',
+    'Bosnia and Herzegovina',
+    'Cape Verde',
+    'Ghana',
+    'Curacao',
+    'Haiti',
+    'New Zealand',
+  ],
+  seed3: [],
+  seed4: [],
+};
+
 const ROOM_SEED_OVERRIDES: Record<string, Record<SeedKey, string[]>> = {
+  cheez: CHEEZ_SEEDS,
+  'cheesy-world-cup': CHEEZ_SEEDS,
   angrybunch: {
     seed1: [
       'Canada',
@@ -1203,12 +1262,13 @@ function generateConstrainedDraw(
         break;
       }
 
-      staged[participantIndex] = {
+      const drawEntry: DrawnTeams = {
         seed1: assignment.seed1!,
         seed2: assignment.seed2!,
-        seed3: assignment.seed3!,
+        ...(assignment.seed3 ? { seed3: assignment.seed3 } : {}),
         ...(assignment.seed4 ? { seed4: assignment.seed4 } : {}),
       };
+      staged[participantIndex] = drawEntry;
     }
 
     if (!failed && staged.every((entry): entry is DrawnTeams => Boolean(entry))) {
@@ -1224,17 +1284,24 @@ function generateBasicSeedDraw(participantCount: number): DrawnTeams[] | null {
     return null;
   }
 
-  const seed1Pool = shuffle([...seeds.seed1]).slice(0, participantCount);
-  const seed2Pool = shuffle([...seeds.seed2]).slice(0, participantCount);
-  const seed3Pool = shuffle([...seeds.seed3]).slice(0, participantCount);
-  const seed4Pool = seeds.seed4.length > 0 ? shuffle([...seeds.seed4]).slice(0, participantCount) : [];
+  const pools: Partial<Record<SeedKey, string[]>> = {};
+  for (const seedKey of ACTIVE_SEED_KEYS) {
+    pools[seedKey] = shuffle([...seeds[seedKey]]).slice(0, participantCount);
+  }
 
-  return Array.from({ length: participantCount }, (_, index) => ({
-    seed1: seed1Pool[index],
-    seed2: seed2Pool[index],
-    seed3: seed3Pool[index],
-    ...(seed4Pool.length > 0 ? { seed4: seed4Pool[index] } : {}),
-  }));
+  return Array.from({ length: participantCount }, (_, index) => {
+    const drawEntry: DrawnTeams = {
+      seed1: pools.seed1![index],
+      seed2: pools.seed2![index],
+    };
+    if ((pools.seed3?.length ?? 0) > 0) {
+      drawEntry.seed3 = pools.seed3![index];
+    }
+    if ((pools.seed4?.length ?? 0) > 0) {
+      drawEntry.seed4 = pools.seed4![index];
+    }
+    return drawEntry;
+  });
 }
 
 function clearDrawOnly(): void {
