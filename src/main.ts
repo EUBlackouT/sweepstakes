@@ -1141,6 +1141,21 @@ function lockFinalDraw(): void {
 }
 
 function performConstrainedDraw(strictOnly: boolean): boolean {
+  if (IS_CHEEZ_ROOM && ACTIVE_SEED_KEYS.length === 2) {
+    const cheezDraw = generateCheezGroupSafeDraw(state.participants.length);
+    if (!cheezDraw) {
+      window.alert(
+        'Could not produce a valid Cheesy draw without same-group pairs. Please try draw again.',
+      );
+      return false;
+    }
+    state.participants = state.participants.map((participant, index) => ({
+      ...participant,
+      teams: cheezDraw[index],
+    }));
+    return true;
+  }
+
   const groupMap = buildGroupMapFromMatches(state.matches);
   const conflictMap = buildTeamConflictMap(state.matches);
   const strictDraw = generateConstrainedDraw(state.participants.length, groupMap, conflictMap);
@@ -1176,6 +1191,54 @@ function performConstrainedDraw(strictOnly: boolean): boolean {
     teams: draw[index],
   }));
   return true;
+}
+
+function generateCheezGroupSafeDraw(participantCount: number): DrawnTeams[] | null {
+  if (participantCount < 1 || participantCount > MAX_DRAW_PARTICIPANTS) {
+    return null;
+  }
+
+  const groupMap = getStaticWorldCupGroupMap();
+  const seed1Pool = shuffle([...seeds.seed1]).slice(0, participantCount);
+  const seed2Pool = shuffle([...seeds.seed2]).slice(0, participantCount);
+  const result: DrawnTeams[] = new Array(participantCount);
+
+  function canPair(team1: string, team2: string): boolean {
+    const g1 = groupMap.get(normalizeTeamName(team1));
+    const g2 = groupMap.get(normalizeTeamName(team2));
+    if (!g1 || !g2) {
+      return false;
+    }
+    return g1 !== g2;
+  }
+
+  function solve(index: number, remainingSeed2: string[]): boolean {
+    if (index >= participantCount) {
+      return true;
+    }
+    const seed1Team = seed1Pool[index];
+    const candidates = shuffle(remainingSeed2.filter((team2) => canPair(seed1Team, team2)));
+    for (const team2 of candidates) {
+      result[index] = { seed1: seed1Team, seed2: team2 };
+      const nextSeed2 = remainingSeed2.filter((team) => team !== team2);
+      if (solve(index + 1, nextSeed2)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  return solve(0, seed2Pool) ? result : null;
+}
+
+function getStaticWorldCupGroupMap(): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const group of WORLD_CUP_GROUPS) {
+    for (const team of group.teams) {
+      map.set(normalizeTeamName(team), group.name);
+    }
+  }
+  return map;
 }
 function generateConstrainedDraw(
   participantCount: number,
