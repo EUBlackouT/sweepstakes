@@ -886,7 +886,14 @@ function render(): void {
                                 (match) => `
                                   <article class="vs-item">
                                     ${renderMatchOwnerRow(match, teamOwners)}
-                                    <p>${formatDateTime(match.kickoff)} • ${teamFlagIcon(match.homeTeam)} ${escapeHtml(match.homeTeam)} vs ${teamFlagIcon(match.awayTeam)} ${escapeHtml(match.awayTeam)}</p>
+                                    <div class="vs-compact-row">
+                                      <span class="vs-compact-date">${formatDateOnly(match.kickoff)}</span>
+                                      <span class="vs-flag-duel" title="${escapeHtml(`${match.homeTeam} vs ${match.awayTeam}`)}">
+                                        <span class="flag-wrap" title="${escapeHtml(match.homeTeam)}">${teamFlagIcon(match.homeTeam)}</span>
+                                        <span class="vs-label">VS</span>
+                                        <span class="flag-wrap" title="${escapeHtml(match.awayTeam)}">${teamFlagIcon(match.awayTeam)}</span>
+                                      </span>
+                                    </div>
                                   </article>
                                 `,
                               )

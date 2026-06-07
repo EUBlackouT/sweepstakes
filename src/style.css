@@ -708,6 +708,48 @@ tbody tr:last-child td {
   line-height: 1.45;
 }
 
+.vs-compact-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vs-compact-date {
+  color: #c9e7f7;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.vs-flag-duel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid #3a7d9e;
+  background: rgba(9, 29, 41, 0.7);
+}
+
+.flag-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.flag-wrap .flag-icon {
+  width: 22px;
+  height: 15px;
+  margin-right: 0;
+}
+
+.vs-label {
+  color: #93d9ff;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+}
+
 .vs-owners {
   display: flex;
   align-items: center;
