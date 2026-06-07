@@ -681,6 +681,10 @@ tbody tr:last-child td {
   gap: 8px;
 }
 
+.vs-list.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .vs-item {
   border: 1px solid #466fa0;
   background: #133247;
@@ -819,6 +823,10 @@ tbody tr:last-child td {
   }
 
   .vs-board-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vs-list.two-col {
     grid-template-columns: 1fr;
   }
 }

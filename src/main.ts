@@ -621,7 +621,7 @@ function render(): void {
         entry.match.status === 'scheduled' &&
         kickoffToDate(entry.match.kickoff).getTime() >= Date.now(),
     )
-    .slice(0, 8);
+    .slice(0, 16);
 
   appEl.innerHTML = `
     <div class="page">
@@ -878,7 +878,7 @@ function render(): void {
                       ? `
                         <div class="vs-column">
                           <p class="hint vs-heading">Upcoming clashes</p>
-                          <div class="vs-list">
+                          <div class="vs-list two-col">
                             ${upcomingFaceOffs
                               .map(
                                 (entry) => `
