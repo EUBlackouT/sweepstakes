@@ -708,49 +708,86 @@ tbody tr:last-child td {
   line-height: 1.45;
 }
 
-.vs-compact-row {
-  margin-top: 8px;
+.upcoming-card {
+  min-height: 116px;
+}
+
+.upcoming-date-row {
+  font-size: 0.8rem;
+  color: #c9e7f7;
+  margin-bottom: 8px;
+}
+
+.upcoming-duel {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
-.vs-compact-date {
-  color: #c9e7f7;
-  font-size: 0.8rem;
+.upcoming-side {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.upcoming-side.home {
+  text-align: left;
+}
+
+.upcoming-side.away {
+  text-align: right;
+  justify-items: end;
+}
+
+.upcoming-owner {
+  font-size: 0.83rem;
+  font-weight: 700;
+  color: #e4f4ff;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.vs-flag-duel {
+.upcoming-team {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border-radius: 999px;
+  gap: 6px;
   border: 1px solid #4a95bb;
   background: linear-gradient(180deg, rgba(12, 44, 62, 0.92), rgba(9, 29, 41, 0.86));
   box-shadow: inset 0 0 0 1px rgba(147, 217, 255, 0.15), 0 4px 12px rgba(0, 0, 0, 0.28);
+  border-radius: 999px;
+  padding: 6px 10px;
+  max-width: 100%;
 }
 
-.flag-wrap {
-  display: inline-flex;
-  align-items: center;
+.upcoming-side.away .upcoming-team {
+  flex-direction: row-reverse;
 }
 
-.flag-wrap .flag-icon {
-  width: 28px;
-  height: 19px;
+.upcoming-team span {
+  font-size: 0.78rem;
+  color: #d6eeff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.upcoming-team .flag-icon {
+  width: 24px;
+  height: 16px;
   margin-right: 0;
   border-radius: 3px;
   border-color: #3a7d9e;
 }
 
-.vs-label {
+.upcoming-vs {
   color: #93d9ff;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   letter-spacing: 0.08em;
   font-weight: 800;
+  flex: 0 0 auto;
 }
 
 .vs-owners {

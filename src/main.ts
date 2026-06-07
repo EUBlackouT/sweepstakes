@@ -883,19 +883,7 @@ function render(): void {
                           <div class="vs-list two-col">
                             ${upcomingSweepstakeMatches
                               .map(
-                                (match) => `
-                                  <article class="vs-item">
-                                    ${renderMatchOwnerRow(match, teamOwners)}
-                                    <div class="vs-compact-row">
-                                      <span class="vs-compact-date">${formatDateOnly(match.kickoff)}</span>
-                                      <span class="vs-flag-duel" title="${escapeHtml(`${match.homeTeam} vs ${match.awayTeam}`)}">
-                                        <span class="flag-wrap" title="${escapeHtml(match.homeTeam)}">${teamFlagIcon(match.homeTeam)}</span>
-                                        <span class="vs-label">VS</span>
-                                        <span class="flag-wrap" title="${escapeHtml(match.awayTeam)}">${teamFlagIcon(match.awayTeam)}</span>
-                                      </span>
-                                    </div>
-                                  </article>
-                                `,
+                                (match) => renderUpcomingMatchCard(match, teamOwners),
                               )
                               .join('')}
                           </div>
@@ -1870,6 +1858,36 @@ function renderMatchOwnerRow(match: Match, teamOwners: Map<string, string[]>): s
       .join('')}</div>`;
   }
   return '<div class="owners-row"><span class="owner-chip muted">No sweepstake owner in this live game</span></div>';
+}
+
+function renderUpcomingMatchCard(match: Match, teamOwners: Map<string, string[]>): string {
+  const homeOwners = getOwnersForTeam(match.homeTeam, teamOwners);
+  const awayOwners = getOwnersForTeam(match.awayTeam, teamOwners);
+  const homeOwnerLabel = homeOwners.length > 0 ? formatOwners(homeOwners) : 'Unowned';
+  const awayOwnerLabel = awayOwners.length > 0 ? formatOwners(awayOwners) : 'Unowned';
+
+  return `
+    <article class="vs-item upcoming-card">
+      <div class="upcoming-date-row">${formatDateOnly(match.kickoff)}</div>
+      <div class="upcoming-duel">
+        <div class="upcoming-side home">
+          <div class="upcoming-owner" title="${escapeHtml(homeOwnerLabel)}">${escapeHtml(homeOwnerLabel)}</div>
+          <div class="upcoming-team" title="${escapeHtml(match.homeTeam)}">
+            ${teamFlagIcon(match.homeTeam)}
+            <span>${escapeHtml(match.homeTeam)}</span>
+          </div>
+        </div>
+        <span class="upcoming-vs">VS</span>
+        <div class="upcoming-side away">
+          <div class="upcoming-owner" title="${escapeHtml(awayOwnerLabel)}">${escapeHtml(awayOwnerLabel)}</div>
+          <div class="upcoming-team" title="${escapeHtml(match.awayTeam)}">
+            ${teamFlagIcon(match.awayTeam)}
+            <span>${escapeHtml(match.awayTeam)}</span>
+          </div>
+        </div>
+      </div>
+    </article>
+  `;
 }
 
 function getSweepstakeFaceOffs(
