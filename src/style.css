@@ -725,11 +725,12 @@ tbody tr:last-child td {
 .vs-flag-duel {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: 10px;
+  padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid #3a7d9e;
-  background: rgba(9, 29, 41, 0.7);
+  border: 1px solid #4a95bb;
+  background: linear-gradient(180deg, rgba(12, 44, 62, 0.92), rgba(9, 29, 41, 0.86));
+  box-shadow: inset 0 0 0 1px rgba(147, 217, 255, 0.15), 0 4px 12px rgba(0, 0, 0, 0.28);
 }
 
 .flag-wrap {
@@ -738,14 +739,16 @@ tbody tr:last-child td {
 }
 
 .flag-wrap .flag-icon {
-  width: 22px;
-  height: 15px;
+  width: 28px;
+  height: 19px;
   margin-right: 0;
+  border-radius: 3px;
+  border-color: #3a7d9e;
 }
 
 .vs-label {
   color: #93d9ff;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   letter-spacing: 0.08em;
   font-weight: 800;
 }
