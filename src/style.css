@@ -760,6 +760,8 @@ tbody tr:last-child td {
   border-radius: 999px;
   padding: 6px 10px;
   max-width: 100%;
+  width: 100%;
+  min-width: 0;
 }
 
 .upcoming-side.away .upcoming-team {
@@ -767,6 +769,8 @@ tbody tr:last-child td {
 }
 
 .upcoming-team span {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 0.78rem;
   color: #d6eeff;
   white-space: nowrap;
@@ -775,6 +779,7 @@ tbody tr:last-child td {
 }
 
 .upcoming-team .flag-icon {
+  flex: 0 0 auto;
   width: 24px;
   height: 16px;
   margin-right: 0;
