@@ -2139,6 +2139,8 @@ function normalizeTeamName(value: string): string {
   const normalized = value
     .trim()
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replaceAll('&', 'and')
     .replaceAll('.', '')
     .replaceAll("'", '')
@@ -2149,8 +2151,6 @@ function normalizeTeamName(value: string): string {
     .replace('korea republic', 'south korea')
     .replace('ir iran', 'iran')
     .replace('cote divoire', 'ivory coast')
-    .replace('bosnia herzegovin', 'bosnia and herzegovina')
-    .replace('bosnia-herzegovin', 'bosnia and herzegovina')
     .replace('curacao', 'curacao')
     .replace('ivory coast', 'ivory coast')
     .replace('dr congo', 'dr congo');
@@ -2158,6 +2158,8 @@ function normalizeTeamName(value: string): string {
   const aliases: Record<string, string> = {
     'cabo verde': 'cape verde',
     'curaçao': 'curacao',
+    'bosnia herzegovina': 'bosnia and herzegovina',
+    'bosnia-herzegovina': 'bosnia and herzegovina',
     bosnia: 'bosnia and herzegovina',
     congo: 'dr congo',
     czechia: 'czech republic',
