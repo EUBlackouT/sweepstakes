@@ -615,12 +615,14 @@ function render(): void {
   );
   const faceOffs = getSweepstakeFaceOffs(state.matches, teamOwners);
   const liveFaceOffs = faceOffs.filter((entry) => entry.match.status === 'live');
-  const upcomingFaceOffs = faceOffs
+  const upcomingSweepstakeMatches = state.matches
     .filter(
-      (entry) =>
-        entry.match.status === 'scheduled' &&
-        kickoffToDate(entry.match.kickoff).getTime() >= Date.now(),
+      (match) =>
+        match.status === 'scheduled' &&
+        kickoffToDate(match.kickoff).getTime() >= Date.now() &&
+        isSweepstakeMatch(match, teamOwners),
     )
+    .sort((a, b) => kickoffToDate(a.kickoff).getTime() - kickoffToDate(b.kickoff).getTime())
     .slice(0, 16);
 
   appEl.innerHTML = `
@@ -844,8 +846,8 @@ function render(): void {
             <span class="badge">${liveFaceOffs.length} live clashes</span>
           </div>
           ${
-            faceOffs.length === 0
-              ? '<p class="empty">No player-vs-player fixtures available yet from current World Cup feed.</p>'
+            liveFaceOffs.length === 0 && upcomingSweepstakeMatches.length === 0
+              ? '<p class="empty">No sweepstake fixtures available yet from current World Cup feed.</p>'
               : `
                 <div class="vs-board-grid">
                   ${
@@ -874,21 +876,17 @@ function render(): void {
                       : ''
                   }
                   ${
-                    upcomingFaceOffs.length > 0
+                    upcomingSweepstakeMatches.length > 0
                       ? `
                         <div class="vs-column">
-                          <p class="hint vs-heading">Upcoming clashes</p>
+                          <p class="hint vs-heading">Upcoming matches</p>
                           <div class="vs-list two-col">
-                            ${upcomingFaceOffs
+                            ${upcomingSweepstakeMatches
                               .map(
-                                (entry) => `
+                                (match) => `
                                   <article class="vs-item">
-                                    <div class="vs-owners">
-                                      <strong>${escapeHtml(formatOwners(entry.homeOwners))}</strong>
-                                      <span>VS</span>
-                                      <strong>${escapeHtml(formatOwners(entry.awayOwners))}</strong>
-                                    </div>
-                                    <p>${formatDateTime(entry.match.kickoff)} • ${teamFlagIcon(entry.match.homeTeam)} ${escapeHtml(entry.match.homeTeam)} vs ${teamFlagIcon(entry.match.awayTeam)} ${escapeHtml(entry.match.awayTeam)}</p>
+                                    ${renderMatchOwnerRow(match, teamOwners)}
+                                    <p>${formatDateTime(match.kickoff)} • ${teamFlagIcon(match.homeTeam)} ${escapeHtml(match.homeTeam)} vs ${teamFlagIcon(match.awayTeam)} ${escapeHtml(match.awayTeam)}</p>
                                   </article>
                                 `,
                               )
