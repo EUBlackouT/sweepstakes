@@ -276,6 +276,7 @@ const ACTIVE_SEED_KEYS: SeedKey[] = ALL_SEED_KEYS.filter((seedKey) => seeds[seed
 const allTeams = ACTIVE_SEED_KEYS.flatMap((seedKey) => seeds[seedKey]);
 const normalizedTeamSet = new Set(allTeams.map(normalizeTeamName));
 const MAX_DRAW_PARTICIPANTS = Math.min(...ACTIVE_SEED_KEYS.map((seedKey) => seeds[seedKey].length));
+const IS_CHEEZ_ROOM = ['cheez', 'cheesy-world-cup'].includes(SUPABASE_ROOM_ID.trim().toLowerCase());
 const GROUPS_DROPDOWN_ROOMS = new Set(['angrybunch', 'cheez']);
 const SHOW_GROUPS_DROPDOWN = GROUPS_DROPDOWN_ROOMS.has(SUPABASE_ROOM_ID.trim().toLowerCase());
 const WORLD_CUP_GROUPS: GroupDefinition[] = [
@@ -657,7 +658,7 @@ function render(): void {
                       ? `
                         <button id="run-draw" ${state.participants.length < 1 || state.participants.length > MAX_DRAW_PARTICIPANTS ? 'disabled' : ''}>Roll Teams (RNG)</button>
                         <button id="lock-draw" class="ghost" ${state.participants.length < 1 || state.participants.length > MAX_DRAW_PARTICIPANTS ? 'disabled' : ''}>Lock Final Draw</button>
-                        <button id="reset-all" class="danger">Reset</button>
+                        <button id="reset-all" class="danger">${IS_CHEEZ_ROOM ? 'Reset Draw' : 'Reset'}</button>
                       `
                       : '<span class="hint">Admin draw buttons are hidden until PIN unlock.</span>'
                   }
@@ -1319,6 +1320,20 @@ function clearDrawOnly(): void {
 
 function resetAll(): void {
   if (!requireAdminAccess('reset sweepstake')) {
+    return;
+  }
+  if (IS_CHEEZ_ROOM) {
+    const confirmed = window.confirm('Reset draw only and keep all names?');
+    if (!confirmed) {
+      return;
+    }
+    state.participants = state.participants.map((participant) => ({
+      ...participant,
+      teams: undefined,
+    }));
+    state.locked = false;
+    state.drawCompletedAt = null;
+    saveAndRender();
     return;
   }
   const confirmed = window.confirm('Reset all participants, draw results, and synced match data?');
