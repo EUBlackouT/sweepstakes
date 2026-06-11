@@ -52,12 +52,6 @@ interface PersonalMatch extends Match {
   opponent: string;
 }
 
-interface SweepstakeFaceOff {
-  match: Match;
-  homeOwners: string[];
-  awayOwners: string[];
-}
-
 interface AppStateRow {
   room_id: string;
   app_state: AppState;
@@ -625,8 +619,11 @@ function render(): void {
   const liveMatchesWithOwners = liveMatches.filter((match) =>
     isSweepstakeMatch(match, teamOwners),
   );
-  const faceOffs = getSweepstakeFaceOffs(state.matches, teamOwners);
-  const liveFaceOffs = faceOffs.filter((entry) => entry.match.status === 'live');
+  const liveClashCount = liveMatches.filter((match) => {
+    const homeOwners = getOwnersForTeam(match.homeTeam, teamOwners);
+    const awayOwners = getOwnersForTeam(match.awayTeam, teamOwners);
+    return homeOwners.length > 0 && awayOwners.length > 0;
+  }).length;
   const upcomingSweepstakeMatches = state.matches
     .filter(
       (match) =>
@@ -855,38 +852,13 @@ function render(): void {
         <section class="card full vs-board">
           <div class="card-head">
             <h2>Upcoming Matches</h2>
-            <span class="badge">${liveFaceOffs.length} live clashes</span>
+            <span class="badge">${liveClashCount} live clashes</span>
           </div>
           ${
-            liveFaceOffs.length === 0 && upcomingSweepstakeMatches.length === 0
+            upcomingSweepstakeMatches.length === 0
               ? '<p class="empty">No sweepstake fixtures available yet from current World Cup feed.</p>'
               : `
                 <div class="vs-board-grid">
-                  ${
-                    liveFaceOffs.length > 0
-                      ? `
-                        <div class="vs-column">
-                          <p class="hint vs-heading">Live right now</p>
-                          <div class="vs-list">
-                            ${liveFaceOffs
-                              .map(
-                                (entry) => `
-                                  <article class="vs-item live">
-                                    <div class="vs-owners">
-                                      <strong>${escapeHtml(formatOwners(entry.homeOwners))}</strong>
-                                      <span>VS</span>
-                                      <strong>${escapeHtml(formatOwners(entry.awayOwners))}</strong>
-                                    </div>
-                                    <p>${teamFlagIcon(entry.match.homeTeam)} ${escapeHtml(entry.match.homeTeam)} vs ${teamFlagIcon(entry.match.awayTeam)} ${escapeHtml(entry.match.awayTeam)} • ${displayScore(entry.match)}</p>
-                                  </article>
-                                `,
-                              )
-                              .join('')}
-                          </div>
-                        </div>
-                      `
-                      : ''
-                  }
                   ${
                     upcomingSweepstakeMatches.length > 0
                       ? `
@@ -1900,42 +1872,6 @@ function renderUpcomingMatchCard(match: Match, teamOwners: Map<string, string[]>
       </div>
     </article>
   `;
-}
-
-function getSweepstakeFaceOffs(
-  matches: Match[],
-  teamOwners: Map<string, string[]>,
-): SweepstakeFaceOff[] {
-  const now = Date.now();
-  return [...matches]
-    .filter((match) => {
-      const homeOwners = getOwnersForTeam(match.homeTeam, teamOwners);
-      const awayOwners = getOwnersForTeam(match.awayTeam, teamOwners);
-      return homeOwners.length > 0 && awayOwners.length > 0;
-    })
-    .sort((a, b) => {
-      const statusScore = (m: Match): number => {
-        if (m.status === 'live') {
-          return 0;
-        }
-        if (m.status === 'scheduled') {
-          return 1;
-        }
-        return 2;
-      };
-      const byStatus = statusScore(a) - statusScore(b);
-      if (byStatus !== 0) {
-        return byStatus;
-      }
-      const ta = kickoffToDate(a.kickoff).getTime();
-      const tb = kickoffToDate(b.kickoff).getTime();
-      return Math.abs(ta - now) - Math.abs(tb - now);
-    })
-    .map((match) => ({
-      match,
-      homeOwners: getOwnersForTeam(match.homeTeam, teamOwners),
-      awayOwners: getOwnersForTeam(match.awayTeam, teamOwners),
-    }));
 }
 
 function formatOwners(owners: string[]): string {
