@@ -481,7 +481,9 @@ async function pullCloudState(initial = false): Promise<void> {
       return;
     }
 
-    const incoming = sanitizeAppState((data as AppStateRow).app_state);
+    const incoming = mergeCloudStateWithLocalApiMatches(
+      sanitizeAppState((data as AppStateRow).app_state),
+    );
     if (JSON.stringify(incoming) !== JSON.stringify(state)) {
       ignoreNextCloudPush = true;
       state = incoming;
@@ -549,7 +551,7 @@ function startCloudSubscription(): void {
         if (!row?.app_state) {
           return;
         }
-        const incoming = sanitizeAppState(row.app_state);
+        const incoming = mergeCloudStateWithLocalApiMatches(sanitizeAppState(row.app_state));
         if (JSON.stringify(incoming) === JSON.stringify(state)) {
           return;
         }
@@ -572,6 +574,16 @@ function sanitizeAppState(raw: AppState): AppState {
     })),
     locked: Boolean(raw?.locked),
     drawCompletedAt: raw?.drawCompletedAt ?? null,
+  };
+}
+
+function mergeCloudStateWithLocalApiMatches(incoming: AppState): AppState {
+  // Keep cloud as source of truth for participants/draw, while preserving fresher
+  // local API-polled match status/score updates from getting overwritten every few seconds.
+  const localApiMatches = state.matches.filter((match) => match.source === 'api');
+  return {
+    ...incoming,
+    matches: mergeApiMatches(incoming.matches, localApiMatches),
   };
 }
 
