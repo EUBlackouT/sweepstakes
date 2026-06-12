@@ -1005,7 +1005,8 @@ function render(): void {
             Select profile
             <select id="participant-picker">
               <option value="">Choose contestant...</option>
-              ${state.participants
+              ${[...state.participants]
+                .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
                 .map(
                   (p) =>
                     `<option value="${p.id}" ${p.id === selectedParticipantId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`,
