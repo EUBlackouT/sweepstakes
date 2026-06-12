@@ -633,6 +633,16 @@ function render(): void {
     )
     .sort((a, b) => kickoffToDate(a.kickoff).getTime() - kickoffToDate(b.kickoff).getTime())
     .slice(0, 16);
+  const previousSweepstakeMatches = state.matches
+    .filter(
+      (match) =>
+        match.status === 'finished' &&
+        match.homeScore !== null &&
+        match.awayScore !== null &&
+        isSweepstakeMatch(match, teamOwners),
+    )
+    .sort((a, b) => kickoffToDate(b.kickoff).getTime() - kickoffToDate(a.kickoff).getTime())
+    .slice(0, 12);
 
   appEl.innerHTML = `
     <div class="page">
@@ -855,7 +865,7 @@ function render(): void {
             <span class="badge">${liveClashCount} live clashes</span>
           </div>
           ${
-            upcomingSweepstakeMatches.length === 0
+            upcomingSweepstakeMatches.length === 0 && previousSweepstakeMatches.length === 0
               ? '<p class="empty">No sweepstake fixtures available yet from current World Cup feed.</p>'
               : `
                 <div class="vs-board-grid">
@@ -868,6 +878,22 @@ function render(): void {
                             ${upcomingSweepstakeMatches
                               .map(
                                 (match) => renderUpcomingMatchCard(match, teamOwners),
+                              )
+                              .join('')}
+                          </div>
+                        </div>
+                      `
+                      : ''
+                  }
+                  ${
+                    previousSweepstakeMatches.length > 0
+                      ? `
+                        <div class="vs-column">
+                          <p class="hint vs-heading">Previous matches</p>
+                          <div class="vs-list">
+                            ${previousSweepstakeMatches
+                              .map(
+                                (match) => renderPreviousMatchCard(match, teamOwners),
                               )
                               .join('')}
                           </div>
@@ -1862,6 +1888,36 @@ function renderUpcomingMatchCard(match: Match, teamOwners: Map<string, string[]>
           </div>
         </div>
         <span class="upcoming-vs">VS</span>
+        <div class="upcoming-side away">
+          <div class="upcoming-owner" title="${escapeHtml(awayOwnerLabel)}">${escapeHtml(awayOwnerLabel)}</div>
+          <div class="upcoming-team" title="${escapeHtml(match.awayTeam)}">
+            ${teamFlagIcon(match.awayTeam)}
+            <span>${escapeHtml(match.awayTeam)}</span>
+          </div>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderPreviousMatchCard(match: Match, teamOwners: Map<string, string[]>): string {
+  const homeOwners = getOwnersForTeam(match.homeTeam, teamOwners);
+  const awayOwners = getOwnersForTeam(match.awayTeam, teamOwners);
+  const homeOwnerLabel = homeOwners.length > 0 ? formatOwners(homeOwners) : 'Unowned';
+  const awayOwnerLabel = awayOwners.length > 0 ? formatOwners(awayOwners) : 'Unowned';
+
+  return `
+    <article class="vs-item previous-card">
+      <div class="upcoming-date-row">${formatDateOnly(match.kickoff)}</div>
+      <div class="upcoming-duel">
+        <div class="upcoming-side home">
+          <div class="upcoming-owner" title="${escapeHtml(homeOwnerLabel)}">${escapeHtml(homeOwnerLabel)}</div>
+          <div class="upcoming-team" title="${escapeHtml(match.homeTeam)}">
+            ${teamFlagIcon(match.homeTeam)}
+            <span>${escapeHtml(match.homeTeam)}</span>
+          </div>
+        </div>
+        <span class="final-score">${match.homeScore} - ${match.awayScore}</span>
         <div class="upcoming-side away">
           <div class="upcoming-owner" title="${escapeHtml(awayOwnerLabel)}">${escapeHtml(awayOwnerLabel)}</div>
           <div class="upcoming-team" title="${escapeHtml(match.awayTeam)}">

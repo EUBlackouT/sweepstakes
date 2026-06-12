@@ -712,6 +712,10 @@ tbody tr:last-child td {
   min-height: 116px;
 }
 
+.previous-card {
+  min-height: 116px;
+}
+
 .upcoming-date-row {
   font-size: 0.8rem;
   color: #c9e7f7;
@@ -793,6 +797,15 @@ tbody tr:last-child td {
   letter-spacing: 0.08em;
   font-weight: 800;
   flex: 0 0 auto;
+}
+
+.final-score {
+  color: #9ff4b6;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  flex: 0 0 auto;
+  padding: 0 2px;
 }
 
 .vs-owners {
