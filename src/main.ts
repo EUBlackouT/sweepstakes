@@ -815,40 +815,41 @@ function render(): void {
                       return `
                         <article class="group-card" data-group="${escapeHtml(group.name.toLowerCase())}">
                           <h3>${escapeHtml(group.name)}</h3>
-                          <div class="group-table-wrap">
-                            <table class="group-standings-table">
-                              <thead>
-                                <tr>
-                                  <th>#</th>
-                                  <th>Team</th>
-                                  <th>Pts</th>
-                                  <th>P</th>
-                                  <th>GF-GA</th>
-                                  <th>Owner</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                ${standings
-                                  .map((row, index) => {
-                                    const owners = getOwnersForTeam(row.team, teamOwners);
-                                    const ownerLabel =
-                                      owners.length > 0 ? formatOwners(owners) : '-';
-                                    return `
-                                      <tr data-team="${escapeHtml(row.team.toLowerCase())}" data-owner="${escapeHtml(ownerLabel.toLowerCase())}">
-                                        <td>${index + 1}</td>
-                                        <td class="group-team-cell">
-                                          <span class="cell-inline">${teamFlagIcon(row.team)} ${escapeHtml(row.team)}</span>
-                                        </td>
-                                        <td><strong>${row.points}</strong></td>
-                                        <td>${row.played}</td>
-                                        <td>${row.goalsFor}-${row.goalsAgainst}</td>
-                                        <td class="group-owner-cell" title="${escapeHtml(ownerLabel)}">${owners.length > 0 ? `🎯 ${escapeHtml(ownerLabel)}` : '-'}</td>
-                                      </tr>
-                                    `;
-                                  })
-                                  .join('')}
-                              </tbody>
-                            </table>
+                          <div class="group-standings">
+                            <div class="group-standings-head" aria-hidden="true">
+                              <span>#</span>
+                              <span>Team</span>
+                              <span>Pts</span>
+                              <span>P</span>
+                              <span>F-A</span>
+                              <span>Owner</span>
+                            </div>
+                            <ul class="group-standings-list">
+                              ${standings
+                                .map((row, index) => {
+                                  const rank = index + 1;
+                                  const owners = getOwnersForTeam(row.team, teamOwners);
+                                  const ownerLabel = owners.length > 0 ? formatOwners(owners) : '-';
+                                  return `
+                                    <li
+                                      class="group-standing-row${rank === 1 && row.points > 0 ? ' group-standing-row--leader' : ''}"
+                                      data-team="${escapeHtml(row.team.toLowerCase())}"
+                                      data-owner="${escapeHtml(ownerLabel.toLowerCase())}"
+                                    >
+                                      <span class="group-rank">${rank}</span>
+                                      <span class="group-team" title="${escapeHtml(row.team)}">
+                                        ${teamFlagIcon(row.team)}
+                                        <span>${escapeHtml(row.team)}</span>
+                                      </span>
+                                      <span class="group-stat group-stat--pts">${row.points}</span>
+                                      <span class="group-stat">${row.played}</span>
+                                      <span class="group-stat">${row.goalsFor}-${row.goalsAgainst}</span>
+                                      <span class="group-owner" title="${escapeHtml(ownerLabel)}">${owners.length > 0 ? `🎯 ${escapeHtml(ownerLabel)}` : '-'}</span>
+                                    </li>
+                                  `;
+                                })
+                                .join('')}
+                            </ul>
                           </div>
                         </article>
                       `;
@@ -2128,7 +2129,7 @@ function applyGroupsSearchFilter(): void {
   const query = groupsSearchQuery.trim().toLowerCase();
   document.querySelectorAll<HTMLElement>('.group-card').forEach((card) => {
     let visibleRows = 0;
-    card.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach((row) => {
+    card.querySelectorAll<HTMLElement>('.group-standing-row').forEach((row) => {
       const team = row.dataset.team ?? '';
       const owner = row.dataset.owner ?? '';
       const matches = !query || team.includes(query) || owner.includes(query);
