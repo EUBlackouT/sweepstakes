@@ -63,6 +63,17 @@ interface GroupDefinition {
   teams: string[];
 }
 
+interface GroupTeamStanding {
+  team: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  points: number;
+}
+
 const STORAGE_KEY = 'world-cup-sweepstake-v2';
 const SELECTED_PROFILE_KEY = 'sweepstake-selected-profile';
 const LEGACY_ADMIN_SESSION_KEY = 'sweepstake-admin-unlocked';
@@ -361,6 +372,7 @@ let joinDraft = { name: '' };
 let liveFailureCount = 0;
 let liveCooldownUntil = 0;
 let selectedParticipantId = localStorage.getItem(SELECTED_PROFILE_KEY);
+let groupsSearchQuery = '';
 const supabase = getSupabaseClient();
 let cloudSyncError: string | null = null;
 let cloudSyncStatus: 'disabled' | 'syncing' | 'online' = supabase ? 'syncing' : 'disabled';
@@ -643,6 +655,7 @@ function render(): void {
     )
     .sort((a, b) => kickoffToDate(b.kickoff).getTime() - kickoffToDate(a.kickoff).getTime())
     .slice(0, 12);
+  const groupStandings = buildWorldCupGroupStandings(state.matches);
 
   appEl.innerHTML = `
     <div class="page">
@@ -784,25 +797,62 @@ function render(): void {
                     <span>World Cup Groups</span>
                     <span class="badge">${WORLD_CUP_GROUPS.length} groups</span>
                   </summary>
+                  <div class="groups-toolbar">
+                    <label class="groups-search">
+                      <span class="sr-only">Search groups</span>
+                      <input
+                        id="groups-search"
+                        type="search"
+                        placeholder="Search team or player..."
+                        value="${escapeHtml(groupsSearchQuery)}"
+                      />
+                    </label>
+                    <p class="hint groups-sync-note">Standings use World Cup group rules (3 pts win, 1 pt draw) and update automatically from live results.</p>
+                  </div>
                   <div class="groups-grid">
-                    ${WORLD_CUP_GROUPS.map(
-                      (group) => `
-                        <article class="group-card">
+                    ${WORLD_CUP_GROUPS.map((group) => {
+                      const standings = groupStandings.get(group.name) ?? [];
+                      return `
+                        <article class="group-card" data-group="${escapeHtml(group.name.toLowerCase())}">
                           <h3>${escapeHtml(group.name)}</h3>
-                          <ul>
-                            ${group.teams
-                              .map((team) => {
-                                const owners = getOwnersForTeam(team, teamOwners);
-                                return `<li>
-                                  <span class="cell-inline">${teamFlagIcon(team)} ${escapeHtml(team)}</span>
-                                  ${owners.length > 0 ? `<span class="group-owner">🎯 ${escapeHtml(formatOwners(owners))}</span>` : ''}
-                                </li>`;
-                              })
-                              .join('')}
-                          </ul>
+                          <div class="group-table-wrap">
+                            <table class="group-standings-table">
+                              <thead>
+                                <tr>
+                                  <th>#</th>
+                                  <th>Team</th>
+                                  <th>Pts</th>
+                                  <th>P</th>
+                                  <th>GF-GA</th>
+                                  <th>Owner</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${standings
+                                  .map((row, index) => {
+                                    const owners = getOwnersForTeam(row.team, teamOwners);
+                                    const ownerLabel =
+                                      owners.length > 0 ? formatOwners(owners) : '-';
+                                    return `
+                                      <tr data-team="${escapeHtml(row.team.toLowerCase())}" data-owner="${escapeHtml(ownerLabel.toLowerCase())}">
+                                        <td>${index + 1}</td>
+                                        <td class="group-team-cell">
+                                          <span class="cell-inline">${teamFlagIcon(row.team)} ${escapeHtml(row.team)}</span>
+                                        </td>
+                                        <td><strong>${row.points}</strong></td>
+                                        <td>${row.played}</td>
+                                        <td>${row.goalsFor}-${row.goalsAgainst}</td>
+                                        <td class="group-owner-cell" title="${escapeHtml(ownerLabel)}">${owners.length > 0 ? `🎯 ${escapeHtml(ownerLabel)}` : '-'}</td>
+                                      </tr>
+                                    `;
+                                  })
+                                  .join('')}
+                              </tbody>
+                            </table>
+                          </div>
                         </article>
-                      `,
-                    ).join('')}
+                      `;
+                    }).join('')}
                   </div>
                 </details>
               </section>
@@ -1056,6 +1106,11 @@ function render(): void {
       }
       render();
     });
+  document.querySelector<HTMLInputElement>('#groups-search')?.addEventListener('input', (event) => {
+    groupsSearchQuery = (event.currentTarget as HTMLInputElement).value;
+    applyGroupsSearchFilter();
+  });
+  applyGroupsSearchFilter();
   const nameInput = document.querySelector<HTMLInputElement>('input[name="name"]');
   nameInput?.addEventListener('input', () => {
     joinDraft.name = nameInput.value;
@@ -1970,6 +2025,120 @@ function getPersonalMatchesFromMatches(
         opponent: isHome ? match.awayTeam : match.homeTeam,
       };
     });
+}
+
+function getWorldCupGroupTeamMap(): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const group of WORLD_CUP_GROUPS) {
+    for (const team of group.teams) {
+      map.set(normalizeTeamName(team), group.name);
+    }
+  }
+  return map;
+}
+
+function buildWorldCupGroupStandings(matches: Match[]): Map<string, GroupTeamStanding[]> {
+  const teamToGroup = getWorldCupGroupTeamMap();
+  const standingsByGroup = new Map<string, Map<string, GroupTeamStanding>>();
+
+  for (const group of WORLD_CUP_GROUPS) {
+    const teamMap = new Map<string, GroupTeamStanding>();
+    for (const team of group.teams) {
+      teamMap.set(normalizeTeamName(team), {
+        team,
+        played: 0,
+        won: 0,
+        drawn: 0,
+        lost: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        points: 0,
+      });
+    }
+    standingsByGroup.set(group.name, teamMap);
+  }
+
+  for (const match of matches) {
+    if (match.status !== 'finished' || match.homeScore === null || match.awayScore === null) {
+      continue;
+    }
+
+    const homeKey = normalizeTeamName(match.homeTeam);
+    const awayKey = normalizeTeamName(match.awayTeam);
+    const groupName = teamToGroup.get(homeKey);
+    if (!groupName || teamToGroup.get(awayKey) !== groupName) {
+      continue;
+    }
+
+    const groupStandings = standingsByGroup.get(groupName);
+    const home = groupStandings?.get(homeKey);
+    const away = groupStandings?.get(awayKey);
+    if (!home || !away) {
+      continue;
+    }
+
+    const homeGoals = match.homeScore;
+    const awayGoals = match.awayScore;
+    home.played += 1;
+    away.played += 1;
+    home.goalsFor += homeGoals;
+    home.goalsAgainst += awayGoals;
+    away.goalsFor += awayGoals;
+    away.goalsAgainst += homeGoals;
+
+    if (homeGoals > awayGoals) {
+      home.won += 1;
+      home.points += 3;
+      away.lost += 1;
+    } else if (homeGoals < awayGoals) {
+      away.won += 1;
+      away.points += 3;
+      home.lost += 1;
+    } else {
+      home.drawn += 1;
+      away.drawn += 1;
+      home.points += 1;
+      away.points += 1;
+    }
+  }
+
+  const result = new Map<string, GroupTeamStanding[]>();
+  for (const group of WORLD_CUP_GROUPS) {
+    const sorted = [...(standingsByGroup.get(group.name)?.values() ?? [])].sort((a, b) => {
+      if (b.points !== a.points) {
+        return b.points - a.points;
+      }
+      const goalDiffA = a.goalsFor - a.goalsAgainst;
+      const goalDiffB = b.goalsFor - b.goalsAgainst;
+      if (goalDiffB !== goalDiffA) {
+        return goalDiffB - goalDiffA;
+      }
+      if (b.goalsFor !== a.goalsFor) {
+        return b.goalsFor - a.goalsFor;
+      }
+      return a.team.localeCompare(b.team);
+    });
+    result.set(group.name, sorted);
+  }
+
+  return result;
+}
+
+function applyGroupsSearchFilter(): void {
+  const query = groupsSearchQuery.trim().toLowerCase();
+  document.querySelectorAll<HTMLElement>('.group-card').forEach((card) => {
+    let visibleRows = 0;
+    card.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach((row) => {
+      const team = row.dataset.team ?? '';
+      const owner = row.dataset.owner ?? '';
+      const matches = !query || team.includes(query) || owner.includes(query);
+      row.hidden = !matches;
+      if (matches) {
+        visibleRows += 1;
+      }
+    });
+    card.hidden = query.length > 0 && visibleRows === 0;
+  });
 }
 
 function buildLeaderboard(): Array<{
