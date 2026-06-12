@@ -1878,7 +1878,9 @@ function renderUpcomingMatchCard(match: Match, teamOwners: Map<string, string[]>
 
   return `
     <article class="vs-item upcoming-card">
-      <div class="upcoming-date-row">${formatDateOnly(match.kickoff)}</div>
+      <div class="upcoming-date-row" title="${escapeHtml(formatDateTime(match.kickoff))}">
+        ${formatKickoffLocalShort(match.kickoff)}
+      </div>
       <div class="upcoming-duel">
         <div class="upcoming-side home">
           <div class="upcoming-owner" title="${escapeHtml(homeOwnerLabel)}">${escapeHtml(homeOwnerLabel)}</div>
@@ -1908,7 +1910,9 @@ function renderPreviousMatchCard(match: Match, teamOwners: Map<string, string[]>
 
   return `
     <article class="vs-item previous-card">
-      <div class="upcoming-date-row">${formatDateOnly(match.kickoff)}</div>
+      <div class="upcoming-date-row" title="${escapeHtml(formatDateTime(match.kickoff))}">
+        ${formatKickoffLocalShort(match.kickoff)}
+      </div>
       <div class="upcoming-duel">
         <div class="upcoming-side home">
           <div class="upcoming-owner" title="${escapeHtml(homeOwnerLabel)}">${escapeHtml(homeOwnerLabel)}</div>
@@ -2116,6 +2120,21 @@ function formatDateOnly(value: string): string {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+  }).format(date);
+}
+
+function formatKickoffLocalShort(value: string): string {
+  const date = kickoffToDate(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
   }).format(date);
 }
 
