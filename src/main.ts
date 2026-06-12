@@ -2021,7 +2021,7 @@ function buildLeaderboard(): Array<{
           losses += 1;
         }
 
-        if (ga === 0) {
+        if (ga === 0 && gf > ga) {
           points += POINTS.cleanSheet;
         }
       }
