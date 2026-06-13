@@ -87,7 +87,7 @@ const SIDE_RIGHT_IMAGE =
 const POINTS = {
   win: 3,
   draw: 1,
-  cleanSheet: 2,
+  cleanSheet: 1,
   goalBonus: 1,
 };
 
