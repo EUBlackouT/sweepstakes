@@ -645,6 +645,7 @@ function render(): void {
     )
     .sort((a, b) => kickoffToDate(a.kickoff).getTime() - kickoffToDate(b.kickoff).getTime())
     .slice(0, 16);
+  const previousMatchLimit = getPreviousMatchLimit(upcomingSweepstakeMatches.length);
   const previousSweepstakeMatches = state.matches
     .filter(
       (match) =>
@@ -654,7 +655,7 @@ function render(): void {
         isSweepstakeMatch(match, teamOwners),
     )
     .sort((a, b) => kickoffToDate(b.kickoff).getTime() - kickoffToDate(a.kickoff).getTime())
-    .slice(0, 12);
+    .slice(0, previousMatchLimit);
   const groupStandings = buildWorldCupGroupStandings(state.matches);
 
   appEl.innerHTML = `
@@ -939,7 +940,7 @@ function render(): void {
                   ${
                     previousSweepstakeMatches.length > 0
                       ? `
-                        <div class="vs-column">
+                        <div class="vs-column vs-column--previous">
                           <p class="hint vs-heading">Previous matches</p>
                           <div class="vs-list">
                             ${previousSweepstakeMatches
@@ -1925,6 +1926,15 @@ function renderMatchOwnerRow(match: Match, teamOwners: Map<string, string[]>): s
       .join('')}</div>`;
   }
   return '<div class="owners-row"><span class="owner-chip muted">No sweepstake owner in this live game</span></div>';
+}
+
+function getPreviousMatchLimit(upcomingCount: number): number {
+  if (upcomingCount === 0) {
+    return 8;
+  }
+  const singleColumnUpcoming =
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 1100px)').matches;
+  return singleColumnUpcoming ? upcomingCount : Math.ceil(upcomingCount / 2);
 }
 
 function renderUpcomingMatchCard(match: Match, teamOwners: Map<string, string[]>): string {
