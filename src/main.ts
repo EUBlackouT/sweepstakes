@@ -79,6 +79,10 @@ const SELECTED_PROFILE_KEY = 'sweepstake-selected-profile';
 const LEGACY_ADMIN_SESSION_KEY = 'sweepstake-admin-unlocked';
 const WORLD_CUP_LEAGUE_ID = '4429';
 const WORLD_CUP_TARGET_SEASON = '2026';
+const GROUP_STAGE_ROUNDS = [1, 2, 3];
+// TheSportsDB uses knockout bracket size as round number (32 = Round of 32, etc.).
+const KNOCKOUT_ROUNDS = [32, 16, 8, 4, 2];
+const WORLD_CUP_FETCH_ROUNDS = [...GROUP_STAGE_ROUNDS, ...KNOCKOUT_ROUNDS];
 const SYNC_INTERVAL_MS = 30_000;
 const CLOUD_SYNC_INTERVAL_MS = 4_000;
 const SIDE_LEFT_IMAGE = (import.meta.env.VITE_SIDE_LEFT_IMAGE as string | undefined) ?? '/side-left.jpg';
@@ -1578,10 +1582,13 @@ async function syncApiMatches(forceRender = false): Promise<void> {
 
 async function fetchWorldCupMatches(): Promise<Match[]> {
   const seasonUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsseason.php?id=${WORLD_CUP_LEAGUE_ID}&s=${WORLD_CUP_TARGET_SEASON}`;
-  const seasonPayload = await fetchJsonWithFallback<{ events?: ApiEvent[] }>(seasonUrl);
-  const roundNumbers = [1, 2, 3];
+  const nextLeagueUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=${WORLD_CUP_LEAGUE_ID}`;
+  const [seasonPayload, nextLeaguePayload] = await Promise.all([
+    fetchJsonWithFallback<{ events?: ApiEvent[] }>(seasonUrl),
+    fetchJsonWithFallback<{ events?: ApiEvent[] }>(nextLeagueUrl).catch(() => ({ events: [] })),
+  ]);
   const roundPayloads = await Promise.all(
-    roundNumbers.map(async (round) => {
+    WORLD_CUP_FETCH_ROUNDS.map(async (round) => {
       const roundUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsround.php?id=${WORLD_CUP_LEAGUE_ID}&r=${round}&s=${WORLD_CUP_TARGET_SEASON}`;
       const payload = await fetchJsonWithFallback<{ events?: ApiEvent[] }>(roundUrl);
       return payload.events ?? [];
@@ -1589,7 +1596,7 @@ async function fetchWorldCupMatches(): Promise<Match[]> {
   );
 
   const eventMap = new Map<string, ApiEvent>();
-  [...(seasonPayload.events ?? []), ...roundPayloads.flat()].forEach((event) => {
+  [...(seasonPayload.events ?? []), ...(nextLeaguePayload.events ?? []), ...roundPayloads.flat()].forEach((event) => {
     if (event.idEvent) {
       eventMap.set(event.idEvent, event);
       return;
@@ -1667,7 +1674,7 @@ function buildGroupMapFromMatches(matches: Match[]): Map<string, string> {
     (match) =>
       match.source === 'api' &&
       match.round !== null &&
-      match.round <= 3 &&
+      match.round <= GROUP_STAGE_ROUNDS[GROUP_STAGE_ROUNDS.length - 1] &&
       normalizedTeamSet.has(normalizeTeamName(match.homeTeam)) &&
       normalizedTeamSet.has(normalizeTeamName(match.awayTeam)),
   );
@@ -2072,6 +2079,9 @@ function buildWorldCupGroupStandings(matches: Match[]): Map<string, GroupTeamSta
 
   for (const match of matches) {
     if (match.status !== 'finished' || match.homeScore === null || match.awayScore === null) {
+      continue;
+    }
+    if (match.round === null || match.round > GROUP_STAGE_ROUNDS[GROUP_STAGE_ROUNDS.length - 1]) {
       continue;
     }
 
