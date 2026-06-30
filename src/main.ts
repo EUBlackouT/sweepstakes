@@ -27,6 +27,8 @@ interface Match {
   status: MatchStatus;
   homeScore: number | null;
   awayScore: number | null;
+  homePenalties: number | null;
+  awayPenalties: number | null;
   source: MatchSource;
   round: number | null;
   apiEventId?: string;
@@ -581,6 +583,8 @@ function sanitizeAppState(raw: AppState): AppState {
     matches: (raw?.matches ?? []).map((match) => ({
       ...match,
       round: match.round ?? null,
+      homePenalties: match.homePenalties ?? null,
+      awayPenalties: match.awayPenalties ?? null,
     })),
     locked: Boolean(raw?.locked),
     drawCompletedAt: raw?.drawCompletedAt ?? null,
@@ -1769,6 +1773,9 @@ interface ApiEvent {
   strTime?: string;
   intHomeScore?: string | number | null;
   intAwayScore?: string | number | null;
+  intHomeScoreExtra?: string | number | null;
+  intAwayScoreExtra?: string | number | null;
+  strResult?: string | null;
   strStatus?: string;
   strHomeTeamBadge?: string | null;
   strAwayTeamBadge?: string | null;
@@ -1781,6 +1788,7 @@ function mapEventToMatch(event: ApiEvent): Match {
   const awayTeam = prettifyTeamName(event.strAwayTeam ?? 'Unknown');
   const homeScore = parseApiScore(event.intHomeScore);
   const awayScore = parseApiScore(event.intAwayScore);
+  const { homePenalties, awayPenalties } = parsePenaltyScores(event);
   const status = inferEventStatus(event.strStatus ?? '', homeScore, awayScore, kickoff);
 
   return {
@@ -1792,11 +1800,67 @@ function mapEventToMatch(event: ApiEvent): Match {
     status,
     homeScore,
     awayScore,
+    homePenalties,
+    awayPenalties,
     source: 'api',
     round: parseRound(event.intRound),
     homeBadge: event.strHomeTeamBadge ?? null,
     awayBadge: event.strAwayTeamBadge ?? null,
   };
+}
+
+function parsePenaltyScores(event: ApiEvent): {
+  homePenalties: number | null;
+  awayPenalties: number | null;
+} {
+  const status = (event.strStatus ?? '').toUpperCase().trim();
+  const resultText = (event.strResult ?? '').toLowerCase();
+  const isPenaltyDecided =
+    ['AP', 'PEN'].includes(status) || resultText.includes('penalt');
+  if (!isPenaltyDecided) {
+    return { homePenalties: null, awayPenalties: null };
+  }
+
+  const homePenalties = parseApiScore(event.intHomeScoreExtra);
+  const awayPenalties = parseApiScore(event.intAwayScoreExtra);
+  if (homePenalties === null || awayPenalties === null || homePenalties === awayPenalties) {
+    return { homePenalties: null, awayPenalties: null };
+  }
+
+  return { homePenalties, awayPenalties };
+}
+
+function matchDecidedByPenalties(match: Match): boolean {
+  return (
+    match.homePenalties !== null &&
+    match.awayPenalties !== null &&
+    match.homePenalties !== match.awayPenalties
+  );
+}
+
+function getSideOutcome(match: Match, side: 'home' | 'away'): 'win' | 'draw' | 'loss' {
+  if (match.homeScore === null || match.awayScore === null) {
+    return 'draw';
+  }
+
+  const goalsFor = side === 'home' ? match.homeScore : match.awayScore;
+  const goalsAgainst = side === 'home' ? match.awayScore : match.homeScore;
+
+  if (matchDecidedByPenalties(match)) {
+    const homeWon = match.homePenalties! > match.awayPenalties!;
+    if (side === 'home') {
+      return homeWon ? 'win' : 'loss';
+    }
+    return homeWon ? 'loss' : 'win';
+  }
+
+  if (goalsFor > goalsAgainst) {
+    return 'win';
+  }
+  if (goalsFor === goalsAgainst) {
+    return 'draw';
+  }
+  return 'loss';
 }
 
 function parseRound(value: string | number | null | undefined): number | null {
@@ -1864,10 +1928,10 @@ function parseApiScore(value: string | number | null | undefined): number | null
 function mapApiStatus(rawStatus: string): MatchStatus {
   const status = rawStatus.toUpperCase().trim();
   if (
-    ['FT', 'AET', 'PEN', 'ABAN', 'MATCH FINISHED', 'FULL TIME', 'FINISHED', 'ENDED'].includes(
+    ['FT', 'AET', 'AP', 'PEN', 'ABAN', 'MATCH FINISHED', 'FULL TIME', 'FINISHED', 'ENDED'].includes(
       status,
     ) ||
-    /\b(FT|FULL\s*TIME|FINISHED|ENDED)\b/.test(status)
+    /\b(FT|AET|AP|PEN|FULL\s*TIME|FINISHED|ENDED)\b/.test(status)
   ) {
     return 'finished';
   }
@@ -1995,7 +2059,7 @@ function renderPreviousMatchCard(match: Match, teamOwners: Map<string, string[]>
             <span>${escapeHtml(match.homeTeam)}</span>
           </div>
         </div>
-        <span class="final-score">${match.homeScore} - ${match.awayScore}</span>
+        <span class="final-score" title="${escapeHtml(displayScore(match))}">${escapeHtml(displayScore(match))}</span>
         <div class="upcoming-side away">
           <div class="upcoming-owner" title="${escapeHtml(awayOwnerLabel)}">${escapeHtml(awayOwnerLabel)}</div>
           <div class="upcoming-team" title="${escapeHtml(match.awayTeam)}">
@@ -2202,17 +2266,18 @@ function buildLeaderboard(): Array<{
         goalsAgainst += ga;
         points += gf * POINTS.goalBonus;
 
-        if (gf > ga) {
+        const outcome = getSideOutcome(match, side);
+        if (outcome === 'win') {
           wins += 1;
           points += POINTS.win;
-        } else if (gf === ga) {
+        } else if (outcome === 'draw') {
           draws += 1;
           points += POINTS.draw;
         } else {
           losses += 1;
         }
 
-        if (ga === 0 && gf > ga) {
+        if (ga === 0 && outcome === 'win') {
           points += POINTS.cleanSheet;
         }
       }
@@ -2245,7 +2310,11 @@ function displayScore(match: Match): string {
   if (match.homeScore === null || match.awayScore === null) {
     return 'vs';
   }
-  return `${match.homeScore} - ${match.awayScore}`;
+  const base = `${match.homeScore} - ${match.awayScore}`;
+  if (!matchDecidedByPenalties(match)) {
+    return base;
+  }
+  return `${base} (${match.homePenalties}-${match.awayPenalties} pens)`;
 }
 
 function teamBadge(url: string | null | undefined, team: string): string {

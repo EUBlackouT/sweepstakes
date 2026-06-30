@@ -900,11 +900,14 @@ tbody tr:last-child td {
 
 .final-score {
   color: #9ff4b6;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   flex: 0 0 auto;
   padding: 0 2px;
+  text-align: center;
+  line-height: 1.25;
+  max-width: 6.5rem;
 }
 
 .vs-owners {
