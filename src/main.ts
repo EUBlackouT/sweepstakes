@@ -666,11 +666,7 @@ function render(): void {
   const previousMatchLimit = getPreviousMatchLimit(upcomingSweepstakeMatches.length);
   const previousSweepstakeMatches = state.matches
     .filter(
-      (match) =>
-        match.status === 'finished' &&
-        match.homeScore !== null &&
-        match.awayScore !== null &&
-        isSweepstakeMatch(match, teamOwners),
+      (match) => isResolvedFinishedMatch(match) && isSweepstakeMatch(match, teamOwners),
     )
     .sort((a, b) => kickoffToDate(b.kickoff).getTime() - kickoffToDate(a.kickoff).getTime())
     .slice(0, previousMatchLimit);
@@ -1598,20 +1594,31 @@ async function syncApiMatches(forceRender = false): Promise<void> {
 async function fetchWorldCupMatches(): Promise<Match[]> {
   const seasonUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsseason.php?id=${WORLD_CUP_LEAGUE_ID}&s=${WORLD_CUP_TARGET_SEASON}`;
   const nextLeagueUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=${WORLD_CUP_LEAGUE_ID}`;
-  const [seasonPayload, nextLeaguePayload] = await Promise.all([
-    fetchJsonWithFallback<{ events?: ApiEvent[] }>(seasonUrl),
+  const pastLeagueUrl = `https://www.thesportsdb.com/api/v1/json/123/eventspastleague.php?id=${WORLD_CUP_LEAGUE_ID}`;
+  const [seasonPayload, nextLeaguePayload, pastLeaguePayload] = await Promise.all([
+    fetchJsonWithFallback<{ events?: ApiEvent[] }>(seasonUrl).catch(() => ({ events: [] })),
     fetchJsonWithFallback<{ events?: ApiEvent[] }>(nextLeagueUrl).catch(() => ({ events: [] })),
+    fetchJsonWithFallback<{ events?: ApiEvent[] }>(pastLeagueUrl).catch(() => ({ events: [] })),
   ]);
   const roundPayloads = await Promise.all(
     WORLD_CUP_FETCH_ROUNDS.map(async (round) => {
       const roundUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsround.php?id=${WORLD_CUP_LEAGUE_ID}&r=${round}&s=${WORLD_CUP_TARGET_SEASON}`;
-      const payload = await fetchJsonWithFallback<{ events?: ApiEvent[] }>(roundUrl);
-      return payload.events ?? [];
+      try {
+        const payload = await fetchJsonWithFallback<{ events?: ApiEvent[] }>(roundUrl);
+        return payload.events ?? [];
+      } catch {
+        return [];
+      }
     }),
   );
 
   const eventMap = new Map<string, ApiEvent>();
-  [...(seasonPayload.events ?? []), ...(nextLeaguePayload.events ?? []), ...roundPayloads.flat()].forEach((event) => {
+  [
+    ...(seasonPayload.events ?? []),
+    ...(nextLeaguePayload.events ?? []),
+    ...(pastLeaguePayload.events ?? []),
+    ...roundPayloads.flat(),
+  ].forEach((event) => {
     if (event.idEvent) {
       eventMap.set(event.idEvent, event);
       return;
@@ -1628,7 +1635,7 @@ async function fetchWorldCupMatches(): Promise<Match[]> {
     return normalizedTeamSet.has(home) || normalizedTeamSet.has(away);
   });
 
-  return filtered.map(mapEventToMatch);
+  return filtered.map(mapEventToMatch).map(normalizeMatchRecord);
 }
 
 async function fetchJsonWithFallback<T>(url: string): Promise<T> {
@@ -1686,7 +1693,72 @@ function combineMatchRecords(stored: Match, incoming: Match): Match {
     merged.status = 'finished';
   }
 
-  return merged;
+  return normalizeMatchRecord(merged);
+}
+
+function normalizeMatchRecord(match: Match): Match {
+  const normalized: Match = { ...match };
+
+  if (matchDecidedByPenalties(normalized)) {
+    normalized.status = 'finished';
+    return normalized;
+  }
+
+  if (
+    normalized.homeScore !== null &&
+    normalized.awayScore !== null &&
+    normalized.status === 'live'
+  ) {
+    const kickoffMs = kickoffToDate(normalized.kickoff).getTime();
+    if (Number.isFinite(kickoffMs) && kickoffMs <= Date.now() - 2 * 60 * 60 * 1000) {
+      normalized.status = 'finished';
+    }
+  }
+
+  return normalized;
+}
+
+function isResolvedFinishedMatch(match: Match): boolean {
+  const normalized = normalizeMatchRecord(match);
+  return (
+    normalized.status === 'finished' &&
+    normalized.homeScore !== null &&
+    normalized.awayScore !== null
+  );
+}
+
+function scoreParticipantSide(
+  match: Match,
+  side: 'home' | 'away',
+  totals: {
+    points: number;
+    wins: number;
+    draws: number;
+    losses: number;
+    goalsFor: number;
+    goalsAgainst: number;
+  },
+): void {
+  const gf = side === 'home' ? match.homeScore! : match.awayScore!;
+  const ga = side === 'home' ? match.awayScore! : match.homeScore!;
+  totals.goalsFor += gf;
+  totals.goalsAgainst += ga;
+  totals.points += gf * POINTS.goalBonus;
+
+  const outcome = getSideOutcome(match, side);
+  if (outcome === 'win') {
+    totals.wins += 1;
+    totals.points += POINTS.win;
+  } else if (outcome === 'draw') {
+    totals.draws += 1;
+    totals.points += POINTS.draw;
+  } else {
+    totals.losses += 1;
+  }
+
+  if (ga === 0 && outcome === 'win') {
+    totals.points += POINTS.cleanSheet;
+  }
 }
 
 function mergeApiMatches(existing: Match[], incomingApiMatches: Match[]): Match[] {
@@ -1700,7 +1772,10 @@ function mergeApiMatches(existing: Match[], incomingApiMatches: Match[]): Match[
 
   for (const [id, incoming] of incomingById.entries()) {
     const stored = existingApiById.get(id);
-    existingApiById.set(id, stored ? combineMatchRecords(stored, incoming) : incoming);
+    existingApiById.set(
+      id,
+      stored ? normalizeMatchRecord(combineMatchRecords(stored, incoming)) : normalizeMatchRecord(incoming),
+    );
   }
 
   return [...manualMatches, ...existingApiById.values()].sort(
@@ -1973,6 +2048,9 @@ function mapApiStatus(rawStatus: string): MatchStatus {
     ) ||
     /\b(FT|AET|AP|PEN|FULL\s*TIME|FINISHED|ENDED)\b/.test(status)
   ) {
+    return 'finished';
+  }
+  if (status === 'AWD' || status === 'WO') {
     return 'finished';
   }
   if (
@@ -2279,57 +2357,42 @@ function buildLeaderboard(): Array<{
   if (!state.locked) {
     return [];
   }
-  const finished = state.matches.filter(
-    (match) => match.status === 'finished' && match.homeScore !== null && match.awayScore !== null,
-  );
+  const finished = state.matches.filter((match) => isResolvedFinishedMatch(match));
   const rows = state.participants
     .filter((p) => Boolean(p.teams))
     .map((participant) => {
       const teams = getAssignedTeams(participant.teams!).map(normalizeTeamName);
-      let points = 0;
-      let wins = 0;
-      let draws = 0;
-      let losses = 0;
-      let goalsFor = 0;
-      let goalsAgainst = 0;
+      const totals = {
+        points: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+      };
 
-      for (const match of finished) {
+      for (const rawMatch of finished) {
+        const match = normalizeMatchRecord(rawMatch);
         const home = normalizeTeamName(match.homeTeam);
         const away = normalizeTeamName(match.awayTeam);
-        const side = teams.includes(home) ? 'home' : teams.includes(away) ? 'away' : null;
-        if (!side) {
-          continue;
-        }
-        const gf = side === 'home' ? match.homeScore! : match.awayScore!;
-        const ga = side === 'home' ? match.awayScore! : match.homeScore!;
-        goalsFor += gf;
-        goalsAgainst += ga;
-        points += gf * POINTS.goalBonus;
 
-        const outcome = getSideOutcome(match, side);
-        if (outcome === 'win') {
-          wins += 1;
-          points += POINTS.win;
-        } else if (outcome === 'draw') {
-          draws += 1;
-          points += POINTS.draw;
-        } else {
-          losses += 1;
-        }
-
-        if (ga === 0 && outcome === 'win') {
-          points += POINTS.cleanSheet;
+        for (const side of ['home', 'away'] as const) {
+          const team = side === 'home' ? home : away;
+          if (!teams.includes(team)) {
+            continue;
+          }
+          scoreParticipantSide(match, side, totals);
         }
       }
 
       return {
         name: participant.name,
-        points,
-        wins,
-        draws,
-        losses,
-        goalsFor,
-        goalsAgainst,
+        points: totals.points,
+        wins: totals.wins,
+        draws: totals.draws,
+        losses: totals.losses,
+        goalsFor: totals.goalsFor,
+        goalsAgainst: totals.goalsAgainst,
       };
     });
 
