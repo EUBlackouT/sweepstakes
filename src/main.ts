@@ -384,10 +384,10 @@ let cloudSyncError: string | null = null;
 let cloudSyncStatus: 'disabled' | 'syncing' | 'online' = supabase ? 'syncing' : 'disabled';
 let ignoreNextCloudPush = false;
 let cloudSubscriptionStarted = false;
+let lastFetchedApiMatches: Match[] = [];
 
 render();
-void syncApiMatches();
-void bootstrapCloudState();
+void initializeApp();
 window.setInterval(() => {
   if (!document.hidden) {
     void syncApiMatches();
@@ -447,6 +447,12 @@ function saveAndRender(): void {
   if (!ignoreNextCloudPush) {
     void pushCloudState();
   }
+}
+
+async function initializeApp(): Promise<void> {
+  void syncApiMatches();
+  await bootstrapCloudState();
+  await syncApiMatches(true);
 }
 
 async function bootstrapCloudState(): Promise<void> {
@@ -595,9 +601,13 @@ function mergeCloudStateWithLocalApiMatches(incoming: AppState): AppState {
   // Keep cloud as source of truth for participants/draw, while preserving fresher
   // local API-polled match status/score updates from getting overwritten every few seconds.
   const localApiMatches = state.matches.filter((match) => match.source === 'api');
+  let matches = mergeApiMatches(incoming.matches, localApiMatches);
+  if (lastFetchedApiMatches.length > 0) {
+    matches = mergeApiMatches(matches, lastFetchedApiMatches);
+  }
   return {
     ...incoming,
-    matches: mergeApiMatches(incoming.matches, localApiMatches),
+    matches,
   };
 }
 
@@ -1564,6 +1574,7 @@ async function syncApiMatches(forceRender = false): Promise<void> {
   }
   try {
     const apiMatches = await fetchWorldCupMatches();
+    lastFetchedApiMatches = apiMatches;
     state.matches = mergeApiMatches(state.matches, apiMatches);
     syncState.lastSyncedAt = new Date().toISOString();
     liveFailureCount = 0;
@@ -1655,6 +1666,29 @@ async function parseResponseJson<T>(response: Response): Promise<T> {
   }
 }
 
+function combineMatchRecords(stored: Match, incoming: Match): Match {
+  const merged: Match = {
+    ...stored,
+    ...incoming,
+    homeScore: incoming.homeScore ?? stored.homeScore,
+    awayScore: incoming.awayScore ?? stored.awayScore,
+    homePenalties: incoming.homePenalties ?? stored.homePenalties ?? null,
+    awayPenalties: incoming.awayPenalties ?? stored.awayPenalties ?? null,
+  };
+
+  if (matchDecidedByPenalties(merged)) {
+    merged.status = 'finished';
+  } else if (
+    (stored.status === 'finished' || incoming.status === 'finished') &&
+    merged.homeScore !== null &&
+    merged.awayScore !== null
+  ) {
+    merged.status = 'finished';
+  }
+
+  return merged;
+}
+
 function mergeApiMatches(existing: Match[], incomingApiMatches: Match[]): Match[] {
   const manualMatches = existing.filter((m) => m.source === 'manual');
   const existingApiById = new Map(
@@ -1665,7 +1699,8 @@ function mergeApiMatches(existing: Match[], incomingApiMatches: Match[]): Match[
   const incomingById = new Map(incomingApiMatches.map((m) => [m.id, m] as const));
 
   for (const [id, incoming] of incomingById.entries()) {
-    existingApiById.set(id, incoming);
+    const stored = existingApiById.get(id);
+    existingApiById.set(id, stored ? combineMatchRecords(stored, incoming) : incoming);
   }
 
   return [...manualMatches, ...existingApiById.values()].sort(
@@ -1816,7 +1851,12 @@ function parsePenaltyScores(event: ApiEvent): {
   const status = (event.strStatus ?? '').toUpperCase().trim();
   const resultText = (event.strResult ?? '').toLowerCase();
   const isPenaltyDecided =
-    ['AP', 'PEN'].includes(status) || resultText.includes('penalt');
+    ['AP', 'PEN'].includes(status) ||
+    resultText.includes('penalt') ||
+    (parseApiScore(event.intHomeScore) === parseApiScore(event.intAwayScore) &&
+      parseApiScore(event.intHomeScoreExtra) !== null &&
+      parseApiScore(event.intAwayScoreExtra) !== null &&
+      parseApiScore(event.intHomeScoreExtra) !== parseApiScore(event.intAwayScoreExtra));
   if (!isPenaltyDecided) {
     return { homePenalties: null, awayPenalties: null };
   }
