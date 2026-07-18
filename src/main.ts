@@ -90,8 +90,11 @@ const WORLD_CUP_LEAGUE_ID = '4429';
 const WORLD_CUP_TARGET_SEASON = '2026';
 const GROUP_STAGE_ROUNDS = [1, 2, 3];
 // TheSportsDB uses knockout bracket size as round number (32 = Round of 32, etc.).
-const KNOCKOUT_ROUNDS = [32, 16, 8, 4, 2];
+// Do NOT include 2 here — that is group-stage matchday 2, already covered above.
+const KNOCKOUT_ROUNDS = [32, 16, 8, 4];
 const WORLD_CUP_FETCH_ROUNDS = [...GROUP_STAGE_ROUNDS, ...KNOCKOUT_ROUNDS];
+// Group stage alone is 72 matches. Reject thin feeds (season endpoint often returns ~15).
+const MIN_ACCEPTABLE_API_MATCHES = 60;
 const SYNC_INTERVAL_MS = 30_000;
 const CLOUD_SYNC_INTERVAL_MS = 4_000;
 const SIDE_LEFT_IMAGE = (import.meta.env.VITE_SIDE_LEFT_IMAGE as string | undefined) ?? '/side-left.jpg';
@@ -391,7 +394,17 @@ let cloudSyncError: string | null = null;
 let cloudSyncStatus: 'disabled' | 'syncing' | 'online' = supabase ? 'syncing' : 'disabled';
 let ignoreNextCloudPush = false;
 let cloudSubscriptionStarted = false;
-let lastFetchedApiMatches: Match[] = [];
+// Seed from localStorage so a thin/failed API response cannot wipe the real scoreboard.
+let lastFetchedApiMatches: Match[] = (state.matches ?? [])
+  .filter((match) => match.source === 'api')
+  .map((match) =>
+    normalizeMatchRecord({
+      ...match,
+      homePenalties: match.homePenalties ?? null,
+      awayPenalties: match.awayPenalties ?? null,
+      round: match.round ?? null,
+    }),
+  );
 
 render();
 void initializeApp();
@@ -484,18 +497,28 @@ function applyCloudParticipants(cloud: CloudAppState): void {
   };
 }
 
+function countFinishedMatches(matches: Match[]): number {
+  return matches.filter((match) => isResolvedFinishedMatch(match)).length;
+}
+
 function getAuthoritativeMatches(fallback: Match[] = state.matches): Match[] {
   const manualMatches = fallback.filter((match) => match.source === 'manual');
-  if (lastFetchedApiMatches.length > 0) {
-    return [...manualMatches, ...lastFetchedApiMatches].sort(
-      (a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime(),
+  const localApiMatches = fallback
+    .filter((match) => match.source === 'api')
+    .map((match) =>
+      normalizeMatchRecord({
+        ...match,
+        homePenalties: match.homePenalties ?? null,
+        awayPenalties: match.awayPenalties ?? null,
+        round: match.round ?? null,
+      }),
     );
-  }
-  // Until the first successful API sync, keep whatever API matches we already have locally.
-  return [
-    ...manualMatches,
-    ...fallback.filter((match) => match.source === 'api').map(normalizeMatchRecord),
-  ].sort((a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime());
+
+  // Union of API cache + local API history — never discard the fuller finished set.
+  const apiMatches = mergeApiMatches(localApiMatches, lastFetchedApiMatches);
+  return [...manualMatches, ...apiMatches.filter((match) => match.source === 'api')].sort(
+    (a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime(),
+  );
 }
 
 async function bootstrapCloudState(): Promise<void> {
@@ -1605,13 +1628,29 @@ async function syncApiMatches(forceRender = false): Promise<void> {
   }
   try {
     const apiMatches = await fetchWorldCupMatches();
-    // Merge API->API only. Never merge with cloud/localStorage match junk.
-    lastFetchedApiMatches = mergeApiMatches(lastFetchedApiMatches, apiMatches);
+    const seedApiMatches =
+      lastFetchedApiMatches.length > 0
+        ? lastFetchedApiMatches
+        : state.matches.filter((match) => match.source === 'api').map(normalizeMatchRecord);
+    const previousFinished = countFinishedMatches(seedApiMatches);
+    const incomingFinished = countFinishedMatches(apiMatches);
+
+    // Thin feeds (e.g. season.php ~15 early games) must never wipe the real scoreboard.
+    if (
+      apiMatches.length < MIN_ACCEPTABLE_API_MATCHES &&
+      seedApiMatches.length >= MIN_ACCEPTABLE_API_MATCHES &&
+      incomingFinished < previousFinished
+    ) {
+      throw new Error(
+        `Live feed incomplete (${apiMatches.length} matches). Keeping existing scoreboard.`,
+      );
+    }
+
+    lastFetchedApiMatches = mergeApiMatches(seedApiMatches, apiMatches);
     state.matches = getAuthoritativeMatches(state.matches);
     syncState.lastSyncedAt = new Date().toISOString();
     liveFailureCount = 0;
     liveCooldownUntil = 0;
-    // Matches stay local; participants/draw are pushed only by user actions.
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     render();
   } catch (error) {
@@ -1619,6 +1658,9 @@ async function syncApiMatches(forceRender = false): Promise<void> {
     liveFailureCount += 1;
     const backoffMs = Math.min(5 * 60 * 1000, 15_000 * 2 ** Math.min(liveFailureCount, 5));
     liveCooldownUntil = Date.now() + backoffMs;
+    // Keep the best scoreboard we already have.
+    state.matches = getAuthoritativeMatches(state.matches);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     render();
   } finally {
     syncState.loading = false;
@@ -1626,40 +1668,54 @@ async function syncApiMatches(forceRender = false): Promise<void> {
   }
 }
 
-async function fetchWorldCupMatches(): Promise<Match[]> {
-  const seasonUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsseason.php?id=${WORLD_CUP_LEAGUE_ID}&s=${WORLD_CUP_TARGET_SEASON}`;
-  const nextLeagueUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=${WORLD_CUP_LEAGUE_ID}`;
-  const pastLeagueUrl = `https://www.thesportsdb.com/api/v1/json/123/eventspastleague.php?id=${WORLD_CUP_LEAGUE_ID}`;
-  const [seasonPayload, nextLeaguePayload, pastLeaguePayload] = await Promise.all([
-    fetchJsonWithFallback<{ events?: ApiEvent[] }>(seasonUrl).catch(() => ({ events: [] })),
-    fetchJsonWithFallback<{ events?: ApiEvent[] }>(nextLeagueUrl).catch(() => ({ events: [] })),
-    fetchJsonWithFallback<{ events?: ApiEvent[] }>(pastLeagueUrl).catch(() => ({ events: [] })),
-  ]);
-  const roundPayloads = await Promise.all(
-    WORLD_CUP_FETCH_ROUNDS.map(async (round) => {
-      const roundUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsround.php?id=${WORLD_CUP_LEAGUE_ID}&r=${round}&s=${WORLD_CUP_TARGET_SEASON}`;
-      try {
-        const payload = await fetchJsonWithFallback<{ events?: ApiEvent[] }>(roundUrl);
-        return payload.events ?? [];
-      } catch {
-        return [];
+function isFetchableWorldCupRound(round: number | null | undefined): boolean {
+  if (round === null || round === undefined) {
+    return false;
+  }
+  return WORLD_CUP_FETCH_ROUNDS.includes(round);
+}
+
+async function fetchRoundEvents(round: number): Promise<ApiEvent[]> {
+  const roundUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsround.php?id=${WORLD_CUP_LEAGUE_ID}&r=${round}&s=${WORLD_CUP_TARGET_SEASON}`;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const payload = await fetchJsonWithFallback<{ events?: ApiEvent[] }>(roundUrl);
+      return payload.events ?? [];
+    } catch {
+      if (attempt < 2) {
+        await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
       }
-    }),
+    }
+  }
+  return [];
+}
+
+async function fetchWorldCupMatches(): Promise<Match[]> {
+  // Prefer per-round feeds. Season/next/past alone are incomplete/noisy for this World Cup.
+  const roundPayloads: ApiEvent[][] = [];
+  for (const round of WORLD_CUP_FETCH_ROUNDS) {
+    roundPayloads.push(await fetchRoundEvents(round));
+  }
+
+  const seasonUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsseason.php?id=${WORLD_CUP_LEAGUE_ID}&s=${WORLD_CUP_TARGET_SEASON}`;
+  const seasonPayload = await fetchJsonWithFallback<{ events?: ApiEvent[] }>(seasonUrl).catch(
+    () => ({ events: [] as ApiEvent[] }),
   );
 
   const eventMap = new Map<string, ApiEvent>();
-  [
-    ...(seasonPayload.events ?? []),
-    ...(nextLeaguePayload.events ?? []),
-    ...(pastLeaguePayload.events ?? []),
-    ...roundPayloads.flat(),
-  ].forEach((event) => {
+  [...(seasonPayload.events ?? []), ...roundPayloads.flat()].forEach((event) => {
+    const round = parseRound(event.intRound);
+    // Ignore weird placeholder rounds from noisy endpoints (e.g. 160/200).
+    if (round !== null && !isFetchableWorldCupRound(round) && !GROUP_STAGE_ROUNDS.includes(round)) {
+      return;
+    }
     if (event.idEvent) {
       eventMap.set(event.idEvent, event);
       return;
     }
     eventMap.set(`${event.strHomeTeam}-${event.strAwayTeam}-${event.dateEvent}-${event.strTime}`, event);
   });
+
   const events = [...eventMap.values()];
   const filtered = events.filter((event) => {
     if (event.idLeague && event.idLeague !== WORLD_CUP_LEAGUE_ID) {
@@ -1670,7 +1726,13 @@ async function fetchWorldCupMatches(): Promise<Match[]> {
     return normalizedTeamSet.has(home) || normalizedTeamSet.has(away);
   });
 
-  return filtered.map(mapEventToMatch).map(normalizeMatchRecord);
+  const matches = filtered.map(mapEventToMatch).map(normalizeMatchRecord);
+  if (matches.length < MIN_ACCEPTABLE_API_MATCHES) {
+    throw new Error(
+      `Live feed returned only ${matches.length} matches (need ${MIN_ACCEPTABLE_API_MATCHES}+).`,
+    );
+  }
+  return matches;
 }
 
 async function fetchJsonWithFallback<T>(url: string): Promise<T> {
