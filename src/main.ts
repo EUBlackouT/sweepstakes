@@ -89,12 +89,26 @@ const LEGACY_ADMIN_SESSION_KEY = 'sweepstake-admin-unlocked';
 const WORLD_CUP_LEAGUE_ID = '4429';
 const WORLD_CUP_TARGET_SEASON = '2026';
 const GROUP_STAGE_ROUNDS = [1, 2, 3];
-// TheSportsDB uses knockout bracket size as round number (32 = Round of 32, etc.).
-// Do NOT include 2 here — that is group-stage matchday 2, already covered above.
-const KNOCKOUT_ROUNDS = [32, 16, 8, 4];
+// TheSportsDB knockout round IDs for World Cup 2026 (NOT 8/4 — those are empty).
+// 32=R32, 16=R16, 125=QF, 150=SF, 160=3rd place, 200=Final.
+const KNOCKOUT_ROUNDS = [32, 16, 125, 150, 160, 200];
 const WORLD_CUP_FETCH_ROUNDS = [...GROUP_STAGE_ROUNDS, ...KNOCKOUT_ROUNDS];
 // Group stage alone is 72 matches. Reject thin feeds (season endpoint often returns ~15).
 const MIN_ACCEPTABLE_API_MATCHES = 60;
+const IN_PLAY_STATUSES = new Set([
+  '1H',
+  '2H',
+  'HT',
+  'ET',
+  'BT',
+  'P',
+  'LIVE',
+  'IN PLAY',
+  'INPLAY',
+  'EXTRA TIME',
+  'PENALTIES',
+  'BREAK',
+]);
 const SYNC_INTERVAL_MS = 30_000;
 const CLOUD_SYNC_INTERVAL_MS = 4_000;
 const SIDE_LEFT_IMAGE = (import.meta.env.VITE_SIDE_LEFT_IMAGE as string | undefined) ?? '/side-left.jpg';
@@ -985,7 +999,7 @@ function render(): void {
 
         <section class="card full vs-board">
           <div class="card-head">
-            <h2>Upcoming Matches</h2>
+            <h2>Match Board</h2>
             <span class="badge">${liveClashCount} live clashes</span>
           </div>
           ${
@@ -1690,23 +1704,48 @@ async function fetchRoundEvents(round: number): Promise<ApiEvent[]> {
   return [];
 }
 
+async function fetchLeagueSnapshotEvents(): Promise<ApiEvent[]> {
+  const urls = [
+    `https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=${WORLD_CUP_LEAGUE_ID}`,
+    `https://www.thesportsdb.com/api/v1/json/123/eventspastleague.php?id=${WORLD_CUP_LEAGUE_ID}`,
+    `https://www.thesportsdb.com/api/v1/json/123/livescore.php?l=${WORLD_CUP_LEAGUE_ID}`,
+  ];
+  const payloads = await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const payload = await fetchJsonWithFallback<{ events?: ApiEvent[]; event?: ApiEvent[] }>(url);
+        return [...(payload.events ?? []), ...(payload.event ?? [])];
+      } catch {
+        return [] as ApiEvent[];
+      }
+    }),
+  );
+  return payloads.flat();
+}
+
 async function fetchWorldCupMatches(): Promise<Match[]> {
-  // Prefer per-round feeds. Season/next/past alone are incomplete/noisy for this World Cup.
+  // Fetch every known World Cup round, plus live/next/past snapshots for current games.
   const roundPayloads: ApiEvent[][] = [];
   for (const round of WORLD_CUP_FETCH_ROUNDS) {
     roundPayloads.push(await fetchRoundEvents(round));
   }
 
   const seasonUrl = `https://www.thesportsdb.com/api/v1/json/123/eventsseason.php?id=${WORLD_CUP_LEAGUE_ID}&s=${WORLD_CUP_TARGET_SEASON}`;
-  const seasonPayload = await fetchJsonWithFallback<{ events?: ApiEvent[] }>(seasonUrl).catch(
-    () => ({ events: [] as ApiEvent[] }),
-  );
+  const [seasonPayload, snapshotEvents] = await Promise.all([
+    fetchJsonWithFallback<{ events?: ApiEvent[] }>(seasonUrl).catch(() => ({
+      events: [] as ApiEvent[],
+    })),
+    fetchLeagueSnapshotEvents(),
+  ]);
 
   const eventMap = new Map<string, ApiEvent>();
-  [...(seasonPayload.events ?? []), ...roundPayloads.flat()].forEach((event) => {
+  [...(seasonPayload.events ?? []), ...snapshotEvents, ...roundPayloads.flat()].forEach((event) => {
+    if (event.idLeague && event.idLeague !== WORLD_CUP_LEAGUE_ID) {
+      return;
+    }
     const round = parseRound(event.intRound);
-    // Ignore weird placeholder rounds from noisy endpoints (e.g. 160/200).
-    if (round !== null && !isFetchableWorldCupRound(round) && !GROUP_STAGE_ROUNDS.includes(round)) {
+    // Keep all known WC rounds (including 125/150/160/200). Skip unknown junk only.
+    if (round !== null && !isFetchableWorldCupRound(round)) {
       return;
     }
     if (event.idEvent) {
@@ -1718,9 +1757,6 @@ async function fetchWorldCupMatches(): Promise<Match[]> {
 
   const events = [...eventMap.values()];
   const filtered = events.filter((event) => {
-    if (event.idLeague && event.idLeague !== WORLD_CUP_LEAGUE_ID) {
-      return false;
-    }
     const home = normalizeTeamName(event.strHomeTeam ?? '');
     const away = normalizeTeamName(event.strAwayTeam ?? '');
     return normalizedTeamSet.has(home) || normalizedTeamSet.has(away);
@@ -1779,6 +1815,12 @@ function combineMatchRecords(stored: Match, incoming: Match): Match {
       stored.homeScore === null ||
       stored.awayScore === null);
 
+  // Live API status must win over a stale local "finished" guess (ET/pens games run >2h).
+  let status: MatchStatus = incoming.status;
+  if (incoming.status === 'scheduled' && stored.status !== 'scheduled') {
+    status = stored.status;
+  }
+
   const merged: Match = {
     ...stored,
     ...incoming,
@@ -1786,12 +1828,7 @@ function combineMatchRecords(stored: Match, incoming: Match): Match {
     awayScore: preferIncomingScores ? incoming.awayScore : (incoming.awayScore ?? stored.awayScore),
     homePenalties: incoming.homePenalties ?? stored.homePenalties ?? null,
     awayPenalties: incoming.awayPenalties ?? stored.awayPenalties ?? null,
-    status:
-      incoming.status === 'finished' || stored.status === 'finished'
-        ? 'finished'
-        : incoming.status === 'live' || stored.status === 'live'
-          ? 'live'
-          : incoming.status,
+    status,
   };
 
   if (matchDecidedByPenalties(merged)) {
@@ -1807,17 +1844,6 @@ function normalizeMatchRecord(match: Match): Match {
   if (matchDecidedByPenalties(normalized)) {
     normalized.status = 'finished';
     return normalized;
-  }
-
-  if (
-    normalized.homeScore !== null &&
-    normalized.awayScore !== null &&
-    normalized.status === 'live'
-  ) {
-    const kickoffMs = kickoffToDate(normalized.kickoff).getTime();
-    if (Number.isFinite(kickoffMs) && kickoffMs <= Date.now() - 2 * 60 * 60 * 1000) {
-      normalized.status = 'finished';
-    }
   }
 
   return normalized;
@@ -2101,17 +2127,19 @@ function inferEventStatus(
   kickoffIso: string,
 ): MatchStatus {
   const hasScores = homeScore !== null && awayScore !== null;
-  if (rawStatus.trim()) {
-    const mapped = mapApiStatus(rawStatus);
-    if (mapped === 'live' && hasScores) {
-      const kickoffMs = kickoffToDate(kickoffIso).getTime();
-      if (Number.isFinite(kickoffMs) && kickoffMs <= Date.now() - 2 * 60 * 60 * 1000) {
-        return 'finished';
-      }
+  const statusKey = rawStatus.toUpperCase().trim();
+  if (statusKey) {
+    // Explicit in-play codes (1H/2H/HT/ET) must stay live — never auto-finish by clock.
+    if (IN_PLAY_STATUSES.has(statusKey)) {
+      return 'live';
     }
-    return mapped;
+    return mapApiStatus(rawStatus);
   }
   if (hasScores) {
+    const kickoffMs = kickoffToDate(kickoffIso).getTime();
+    if (Number.isFinite(kickoffMs) && kickoffMs > Date.now() - 3 * 60 * 60 * 1000) {
+      return 'live';
+    }
     return 'finished';
   }
   const kickoffMs = kickoffToDate(kickoffIso).getTime();
@@ -2147,6 +2175,9 @@ function parseApiScore(value: string | number | null | undefined): number | null
 
 function mapApiStatus(rawStatus: string): MatchStatus {
   const status = rawStatus.toUpperCase().trim();
+  if (IN_PLAY_STATUSES.has(status)) {
+    return 'live';
+  }
   if (
     ['FT', 'AET', 'AP', 'PEN', 'ABAN', 'MATCH FINISHED', 'FULL TIME', 'FINISHED', 'ENDED'].includes(
       status,
