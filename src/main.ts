@@ -119,7 +119,11 @@ const POINTS = {
   draw: 1,
   cleanSheet: 1,
   goalBonus: 1,
+  /** Bonus for owning the World Cup winning team. Keep modest so the full tournament still matters. */
+  worldChampion: 5,
 };
+const FINAL_ROUND = 200;
+const CHAMPION_TOAST_KEY = `sweepstake-champion-toast-${SUPABASE_ROOM_ID}`;
 
 const DEFAULT_SEEDS: Record<SeedKey, string[]> = {
   seed1: [
@@ -743,6 +747,10 @@ function render(): void {
     .sort((a, b) => kickoffToDate(b.kickoff).getTime() - kickoffToDate(a.kickoff).getTime())
     .slice(0, previousMatchLimit);
   const groupStandings = buildWorldCupGroupStandings(state.matches);
+  const worldChampion = getWorldCupChampionInfo();
+  const championOwners = worldChampion
+    ? getOwnersForTeam(worldChampion.team, teamOwners)
+    : [];
 
   appEl.innerHTML = `
     <div class="page">
@@ -1067,9 +1075,9 @@ function render(): void {
                     : leaderboard
                         .map(
                           (row, index) => `
-                            <tr>
-                              <td>${index + 1}</td>
-                              <td>${escapeHtml(row.name)}</td>
+                            <tr class="${index === 0 && worldChampion ? 'leaderboard-leader' : ''}">
+                              <td>${index === 0 && worldChampion ? '👑' : index + 1}</td>
+                              <td>${escapeHtml(row.name)}${row.championBonus > 0 ? ` <span class="champ-tag" title="World Cup winner bonus">+${row.championBonus} WC</span>` : ''}</td>
                               <td><strong>${row.points}</strong></td>
                               <td>${row.wins}-${row.draws}-${row.losses}</td>
                               <td>${row.goalsFor}-${row.goalsAgainst}</td>
@@ -1081,7 +1089,12 @@ function render(): void {
               </tbody>
             </table>
           </div>
-          <p class="hint">Points: Win ${POINTS.win}, Draw ${POINTS.draw}, Clean Sheet ${POINTS.cleanSheet}, Goal Bonus ${POINTS.goalBonus} per goal.</p>
+          <p class="hint">Points: Win ${POINTS.win}, Draw ${POINTS.draw}, Clean Sheet ${POINTS.cleanSheet}, Goal Bonus ${POINTS.goalBonus} per goal${POINTS.worldChampion > 0 ? `, World Cup winners +${POINTS.worldChampion}` : ''}.</p>
+          ${
+            worldChampion
+              ? `<p class="hint champ-note">${teamFlagIcon(worldChampion.team)} ${escapeHtml(worldChampion.team)} are World Cup winners${championOwners.length > 0 ? ` — owned by ${escapeHtml(formatOwners(championOwners))}` : ''} (+${POINTS.worldChampion} pts).</p>`
+              : ''
+          }
         </section>
 
         <section class="card schedule-section">
@@ -1204,6 +1217,7 @@ function render(): void {
   nameInput?.addEventListener('input', () => {
     joinDraft.name = nameInput.value;
   });
+  maybeShowChampionCelebration(leaderboard, worldChampion, championOwners);
 
 }
 
@@ -2254,12 +2268,14 @@ function renderMatchOwnerRow(match: Match, teamOwners: Map<string, string[]>): s
 }
 
 function getPreviousMatchLimit(upcomingCount: number): number {
+  // Always keep a useful recent history of knockouts visible (QF/SF/3rd/etc.).
   if (upcomingCount === 0) {
-    return 8;
+    return 16;
   }
   const singleColumnUpcoming =
     typeof window !== 'undefined' && window.matchMedia('(max-width: 1100px)').matches;
-  return singleColumnUpcoming ? upcomingCount : Math.ceil(upcomingCount / 2);
+  const aligned = singleColumnUpcoming ? upcomingCount : Math.ceil(upcomingCount / 2);
+  return Math.max(aligned, 12);
 }
 
 function renderUpcomingMatchCard(match: Match, teamOwners: Map<string, string[]>): string {
@@ -2481,6 +2497,32 @@ function applyGroupsSearchFilter(): void {
   });
 }
 
+function getWorldCupFinalMatch(): Match | null {
+  const finals = state.matches
+    .filter((match) => match.round === FINAL_ROUND)
+    .sort((a, b) => kickoffToDate(b.kickoff).getTime() - kickoffToDate(a.kickoff).getTime());
+  return finals[0] ?? null;
+}
+
+function getWorldCupChampionInfo(): { team: string; match: Match } | null {
+  const final = getWorldCupFinalMatch();
+  if (!final || !isResolvedFinishedMatch(final) || final.homeScore === null || final.awayScore === null) {
+    return null;
+  }
+  const normalized = normalizeMatchRecord(final);
+  if (matchDecidedByPenalties(normalized)) {
+    const homeWon = normalized.homePenalties! > normalized.awayPenalties!;
+    return { team: homeWon ? normalized.homeTeam : normalized.awayTeam, match: normalized };
+  }
+  if (normalized.homeScore === normalized.awayScore) {
+    return null;
+  }
+  return {
+    team: normalized.homeScore! > normalized.awayScore! ? normalized.homeTeam : normalized.awayTeam,
+    match: normalized,
+  };
+}
+
 function buildLeaderboard(): Array<{
   name: string;
   points: number;
@@ -2489,11 +2531,14 @@ function buildLeaderboard(): Array<{
   losses: number;
   goalsFor: number;
   goalsAgainst: number;
+  championBonus: number;
 }> {
   if (!state.locked) {
     return [];
   }
   const finished = state.matches.filter((match) => isResolvedFinishedMatch(match));
+  const champion = getWorldCupChampionInfo();
+  const championKey = champion ? normalizeTeamName(champion.team) : null;
   const rows = state.participants
     .filter((p) => Boolean(p.teams))
     .map((participant) => {
@@ -2521,6 +2566,12 @@ function buildLeaderboard(): Array<{
         }
       }
 
+      let championBonus = 0;
+      if (championKey && teams.includes(championKey)) {
+        championBonus = POINTS.worldChampion;
+        totals.points += championBonus;
+      }
+
       return {
         name: participant.name,
         points: totals.points,
@@ -2529,6 +2580,7 @@ function buildLeaderboard(): Array<{
         losses: totals.losses,
         goalsFor: totals.goalsFor,
         goalsAgainst: totals.goalsAgainst,
+        championBonus,
       };
     });
 
@@ -2543,6 +2595,82 @@ function buildLeaderboard(): Array<{
     }
     return b.goalsFor - a.goalsFor;
   });
+}
+
+function maybeShowChampionCelebration(
+  leaderboard: Array<{ name: string; points: number }>,
+  worldChampion: { team: string; match: Match } | null,
+  championOwners: string[],
+): void {
+  if (!worldChampion || leaderboard.length === 0) {
+    return;
+  }
+  if (localStorage.getItem(CHAMPION_TOAST_KEY) === worldChampion.match.id) {
+    return;
+  }
+  const winner = leaderboard[0];
+  if (!winner) {
+    return;
+  }
+  localStorage.setItem(CHAMPION_TOAST_KEY, worldChampion.match.id);
+  showChampionCelebration({
+    sweepstakeChampion: winner.name,
+    points: winner.points,
+    worldCupTeam: worldChampion.team,
+    worldCupOwners: championOwners,
+  });
+}
+
+function showChampionCelebration(details: {
+  sweepstakeChampion: string;
+  points: number;
+  worldCupTeam: string;
+  worldCupOwners: string[];
+}): void {
+  document.getElementById('champion-celebration')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'champion-celebration';
+  overlay.className = 'champion-overlay';
+  const ownerLine =
+    details.worldCupOwners.length > 0
+      ? `${details.worldCupTeam} owned by ${formatOwners(details.worldCupOwners)}`
+      : `${details.worldCupTeam} are World Cup champions`;
+
+  overlay.innerHTML = `
+    <div class="champion-confetti" aria-hidden="true"></div>
+    <div class="champion-card" role="dialog" aria-label="Sweepstake champion">
+      <p class="champion-kicker">World Cup complete</p>
+      <h2 class="champion-title">Champion</h2>
+      <p class="champion-name">${escapeHtml(details.sweepstakeChampion)}</p>
+      <p class="champion-points">${details.points} points</p>
+      <p class="champion-sub">${teamFlagIcon(details.worldCupTeam)} ${escapeHtml(ownerLine)}</p>
+      <button type="button" class="champion-dismiss">Celebrate later</button>
+    </div>
+  `;
+
+  const confettiHost = overlay.querySelector('.champion-confetti');
+  if (confettiHost) {
+    const colors = ['#26d07c', '#38bdf8', '#fbbf24', '#f472b6', '#a78bfa', '#ffffff'];
+    for (let i = 0; i < 80; i += 1) {
+      const piece = document.createElement('span');
+      piece.className = 'confetti-piece';
+      piece.style.left = `${Math.random() * 100}%`;
+      piece.style.background = colors[i % colors.length];
+      piece.style.animationDelay = `${Math.random() * 1.8}s`;
+      piece.style.animationDuration = `${2.4 + Math.random() * 2.2}s`;
+      piece.style.transform = `rotate(${Math.random() * 360}deg)`;
+      confettiHost.appendChild(piece);
+    }
+  }
+
+  overlay.querySelector('.champion-dismiss')?.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) {
+      overlay.remove();
+    }
+  });
+  document.body.appendChild(overlay);
 }
 
 function displayScore(match: Match): string {
