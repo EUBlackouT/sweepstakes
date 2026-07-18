@@ -43,6 +43,13 @@ interface AppState {
   drawCompletedAt: string | null;
 }
 
+/** Shared cloud payload — participants/draw only. Matches are never shared via cloud. */
+interface CloudAppState {
+  participants: Participant[];
+  locked: boolean;
+  drawCompletedAt: string | null;
+}
+
 interface SyncState {
   loading: boolean;
   error: string | null;
@@ -398,13 +405,11 @@ window.setInterval(() => {
 }, CLOUD_SYNC_INTERVAL_MS);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    void syncApiMatches();
-    void pullCloudState();
+    void pullCloudState().then(() => syncApiMatches());
   }
 });
 window.addEventListener('online', () => {
-  void syncApiMatches();
-  void pullCloudState();
+  void pullCloudState().then(() => syncApiMatches());
 });
 
 function loadState(): AppState {
@@ -450,9 +455,47 @@ function saveAndRender(): void {
 }
 
 async function initializeApp(): Promise<void> {
-  void syncApiMatches();
+  // Participants/draw from cloud first, then matches from the live API.
+  // Never race these — racing caused every browser to show different points.
   await bootstrapCloudState();
   await syncApiMatches(true);
+  // Clear any stale match blobs previously written into Supabase so all clients converge.
+  if (cloudSyncStatus === 'online') {
+    await pushCloudState(true);
+  }
+}
+
+function toCloudAppState(source: AppState = state): CloudAppState {
+  return {
+    participants: source.participants,
+    locked: source.locked,
+    drawCompletedAt: source.drawCompletedAt,
+  };
+}
+
+function applyCloudParticipants(cloud: CloudAppState): void {
+  state = {
+    ...state,
+    participants: cloud.participants,
+    locked: cloud.locked,
+    drawCompletedAt: cloud.drawCompletedAt,
+    // Matches stay local/API-owned — never replace from cloud.
+    matches: getAuthoritativeMatches(state.matches),
+  };
+}
+
+function getAuthoritativeMatches(fallback: Match[] = state.matches): Match[] {
+  const manualMatches = fallback.filter((match) => match.source === 'manual');
+  if (lastFetchedApiMatches.length > 0) {
+    return [...manualMatches, ...lastFetchedApiMatches].sort(
+      (a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime(),
+    );
+  }
+  // Until the first successful API sync, keep whatever API matches we already have locally.
+  return [
+    ...manualMatches,
+    ...fallback.filter((match) => match.source === 'api').map(normalizeMatchRecord),
+  ].sort((a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime());
 }
 
 async function bootstrapCloudState(): Promise<void> {
@@ -499,15 +542,23 @@ async function pullCloudState(initial = false): Promise<void> {
       return;
     }
 
-    const incoming = mergeCloudStateWithLocalApiMatches(
-      sanitizeAppState((data as AppStateRow).app_state),
-    );
-    if (JSON.stringify(incoming) !== JSON.stringify(state)) {
+    const cloud = sanitizeCloudAppState((data as AppStateRow).app_state);
+    const before = JSON.stringify(toCloudAppState());
+    const after = JSON.stringify(cloud);
+    if (before !== after) {
       ignoreNextCloudPush = true;
-      state = incoming;
+      applyCloudParticipants(cloud);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       render();
       ignoreNextCloudPush = false;
+    } else {
+      // Still refresh matches from the latest API cache so points stay consistent.
+      const nextMatches = getAuthoritativeMatches(state.matches);
+      if (JSON.stringify(nextMatches) !== JSON.stringify(state.matches)) {
+        state.matches = nextMatches;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        render();
+      }
     }
 
     cloudSyncStatus = 'online';
@@ -527,10 +578,14 @@ async function pushCloudState(isBootstrap = false): Promise<void> {
     return;
   }
   try {
+    // Never write match/score data to cloud — that caused every client to diverge.
     const { error } = await supabase.from('sweepstake_state').upsert(
       {
         room_id: SUPABASE_ROOM_ID,
-        app_state: state,
+        app_state: {
+          ...toCloudAppState(),
+          matches: [],
+        },
       },
       { onConflict: 'room_id' },
     );
@@ -569,12 +624,12 @@ function startCloudSubscription(): void {
         if (!row?.app_state) {
           return;
         }
-        const incoming = mergeCloudStateWithLocalApiMatches(sanitizeAppState(row.app_state));
-        if (JSON.stringify(incoming) === JSON.stringify(state)) {
+        const cloud = sanitizeCloudAppState(row.app_state);
+        if (JSON.stringify(cloud) === JSON.stringify(toCloudAppState())) {
           return;
         }
         ignoreNextCloudPush = true;
-        state = incoming;
+        applyCloudParticipants(cloud);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         render();
         ignoreNextCloudPush = false;
@@ -583,31 +638,11 @@ function startCloudSubscription(): void {
     .subscribe();
 }
 
-function sanitizeAppState(raw: AppState): AppState {
+function sanitizeCloudAppState(raw: AppState | CloudAppState | null | undefined): CloudAppState {
   return {
     participants: raw?.participants ?? [],
-    matches: (raw?.matches ?? []).map((match) => ({
-      ...match,
-      round: match.round ?? null,
-      homePenalties: match.homePenalties ?? null,
-      awayPenalties: match.awayPenalties ?? null,
-    })),
     locked: Boolean(raw?.locked),
     drawCompletedAt: raw?.drawCompletedAt ?? null,
-  };
-}
-
-function mergeCloudStateWithLocalApiMatches(incoming: AppState): AppState {
-  // Keep cloud as source of truth for participants/draw, while preserving fresher
-  // local API-polled match status/score updates from getting overwritten every few seconds.
-  const localApiMatches = state.matches.filter((match) => match.source === 'api');
-  let matches = mergeApiMatches(incoming.matches, localApiMatches);
-  if (lastFetchedApiMatches.length > 0) {
-    matches = mergeApiMatches(matches, lastFetchedApiMatches);
-  }
-  return {
-    ...incoming,
-    matches,
   };
 }
 
@@ -1570,13 +1605,13 @@ async function syncApiMatches(forceRender = false): Promise<void> {
   }
   try {
     const apiMatches = await fetchWorldCupMatches();
-    lastFetchedApiMatches = apiMatches;
-    state.matches = mergeApiMatches(state.matches, apiMatches);
+    // Merge API->API only. Never merge with cloud/localStorage match junk.
+    lastFetchedApiMatches = mergeApiMatches(lastFetchedApiMatches, apiMatches);
+    state.matches = getAuthoritativeMatches(state.matches);
     syncState.lastSyncedAt = new Date().toISOString();
     liveFailureCount = 0;
     liveCooldownUntil = 0;
-    // Do not push cloud state on every API poll; that can overwrite
-    // participant/draw data from other active clients.
+    // Matches stay local; participants/draw are pushed only by user actions.
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     render();
   } catch (error) {
@@ -1674,22 +1709,30 @@ async function parseResponseJson<T>(response: Response): Promise<T> {
 }
 
 function combineMatchRecords(stored: Match, incoming: Match): Match {
+  const preferIncomingScores =
+    incoming.homeScore !== null &&
+    incoming.awayScore !== null &&
+    (incoming.status === 'finished' ||
+      incoming.status === 'live' ||
+      stored.homeScore === null ||
+      stored.awayScore === null);
+
   const merged: Match = {
     ...stored,
     ...incoming,
-    homeScore: incoming.homeScore ?? stored.homeScore,
-    awayScore: incoming.awayScore ?? stored.awayScore,
+    homeScore: preferIncomingScores ? incoming.homeScore : (incoming.homeScore ?? stored.homeScore),
+    awayScore: preferIncomingScores ? incoming.awayScore : (incoming.awayScore ?? stored.awayScore),
     homePenalties: incoming.homePenalties ?? stored.homePenalties ?? null,
     awayPenalties: incoming.awayPenalties ?? stored.awayPenalties ?? null,
+    status:
+      incoming.status === 'finished' || stored.status === 'finished'
+        ? 'finished'
+        : incoming.status === 'live' || stored.status === 'live'
+          ? 'live'
+          : incoming.status,
   };
 
   if (matchDecidedByPenalties(merged)) {
-    merged.status = 'finished';
-  } else if (
-    (stored.status === 'finished' || incoming.status === 'finished') &&
-    merged.homeScore !== null &&
-    merged.awayScore !== null
-  ) {
     merged.status = 'finished';
   }
 
